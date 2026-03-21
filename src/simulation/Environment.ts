@@ -1,13 +1,14 @@
 import Matter from 'matter-js';
-import { Cell } from '../creature/Cell';
+import { Cell, getCellCenter, getMembranePoints } from '../creature/Cell';
 import { FoodParticle, createFoodParticle, stickFoodToBody, removeFood, nudgeFood } from './Food';
 import { EnergyState, addEnergy, updateWaste, updateParticles } from './Energy';
 import { growCell } from '../creature/Cell';
 import { LightCycle, getLightLevel } from './LightCycle';
+import { updateModules, ModuleEffects } from '../creature/Module';
 
 const MAX_FOOD = 40;
-const SPAWN_INTERVAL_BRIGHT = 600;  // ms at peak light
-const SPAWN_INTERVAL_DARK = 2000;   // ms in darkness
+const SPAWN_INTERVAL_BRIGHT = 600;
+const SPAWN_INTERVAL_DARK = 2000;
 const ABSORB_DELAY = 1000;
 
 export interface Environment {
@@ -15,6 +16,7 @@ export interface Environment {
   lastSpawnTime: number;
   worldWidth: number;
   worldHeight: number;
+  lastEffects: ModuleEffects;
 }
 
 export function createEnvironment(width: number, height: number): Environment {
@@ -23,6 +25,7 @@ export function createEnvironment(width: number, height: number): Environment {
     lastSpawnTime: 0,
     worldWidth: width,
     worldHeight: height,
+    lastEffects: { endocytosisActive: false, wastePermeable: false, wastePushActive: false },
   };
 }
 
@@ -67,9 +70,13 @@ export function updateEnvironment(
 ): void {
   const light = getLightLevel(lightCycle, now);
 
-  // Spawn interval scales with light: brighter = more food
-  const spawnInterval = SPAWN_INTERVAL_DARK + (SPAWN_INTERVAL_BRIGHT - SPAWN_INTERVAL_DARK) * light;
+  // --- Module system ---
+  const hasStuckFood = env.food.some(f => f.stuck && !f.absorbed);
+  const effects = updateModules(cell.modules, cell.cascades, hasStuckFood, energy.waste);
+  env.lastEffects = effects;
 
+  // --- Food spawning (light-modulated) ---
+  const spawnInterval = SPAWN_INTERVAL_DARK + (SPAWN_INTERVAL_BRIGHT - SPAWN_INTERVAL_DARK) * light;
   if (now - env.lastSpawnTime > spawnInterval && env.food.length < MAX_FOOD) {
     const margin = 60;
     const x = margin + Math.random() * (env.worldWidth - margin * 2);
@@ -83,14 +90,14 @@ export function updateEnvironment(
     nudgeFood(f);
   }
 
-  // Check stuck food for absorption
+  // --- Endocytosis (module-gated) ---
   for (let i = env.food.length - 1; i >= 0; i--) {
     const f = env.food[i];
     if (f.absorbed) {
       env.food.splice(i, 1);
       continue;
     }
-    if (f.stuck && now - f.stuckTime > ABSORB_DELAY) {
+    if (f.stuck && effects.endocytosisActive && now - f.stuckTime > ABSORB_DELAY) {
       addEnergy(energy, f.energyValue);
       growCell(cell, 0.02);
       removeFood(world, f);
@@ -98,8 +105,16 @@ export function updateEnvironment(
     }
   }
 
-  // Update waste accumulation and internal particles
+  // --- Waste accumulation ---
   updateWaste(energy, delta);
-  // Use cell base radius for particle containment
-  updateParticles(energy, cell.properties.baseRadius * cell.properties.growthScale, delta);
+
+  // --- Internal particles (polygon bouncing + waste expulsion) ---
+  const center = getCellCenter(cell);
+  const memPoints = getMembranePoints(cell);
+  const expelled = updateParticles(
+    energy, memPoints, center,
+    effects.wastePermeable, effects.wastePushActive, delta,
+  );
+  energy.waste -= expelled;
+  if (energy.waste < 0) energy.waste = 0;
 }

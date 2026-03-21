@@ -1,5 +1,6 @@
 import Matter from 'matter-js';
 import { CellProperties, defaultCellProperties } from './CellProperties';
+import { CellModule, SignalCascade, createModule, createCascade } from './Module';
 
 const MEMBRANE_POINTS = 16;
 const COLLISION_CATEGORY = 0x0002;
@@ -9,6 +10,8 @@ export interface Cell {
   membraneParticles: Matter.Body[];
   constraints: Matter.Constraint[];
   center: Matter.Body;
+  modules: CellModule[];
+  cascades: SignalCascade[];
 }
 
 export function createCell(
@@ -21,10 +24,8 @@ export function createCell(
   const r = properties.baseRadius;
   const particleRadius = 6;
 
-  // Create membrane ring particles
   const membraneParticles: Matter.Body[] = [];
   for (let i = 0; i < MEMBRANE_POINTS; i++) {
-    // Elliptical shape: wider than tall
     const angle = (i / MEMBRANE_POINTS) * Math.PI * 2;
     const px = x + Math.cos(angle) * r * 1.2;
     const py = y + Math.sin(angle) * r * 0.85;
@@ -38,7 +39,6 @@ export function createCell(
     membraneParticles.push(particle);
   }
 
-  // Center anchor (invisible, holds shape)
   const center = Matter.Bodies.circle(x, y, 3, {
     label: 'cell_center',
     collisionFilter: { category: COLLISION_CATEGORY, mask: 0x0000 },
@@ -47,7 +47,6 @@ export function createCell(
 
   const constraints: Matter.Constraint[] = [];
 
-  // Connect adjacent membrane particles
   for (let i = 0; i < MEMBRANE_POINTS; i++) {
     const next = (i + 1) % MEMBRANE_POINTS;
     constraints.push(
@@ -61,7 +60,6 @@ export function createCell(
     );
   }
 
-  // Connect opposite membrane particles for structural integrity
   for (let i = 0; i < MEMBRANE_POINTS / 2; i++) {
     const opposite = i + MEMBRANE_POINTS / 2;
     constraints.push(
@@ -75,7 +73,6 @@ export function createCell(
     );
   }
 
-  // Connect each membrane particle to center
   for (let i = 0; i < MEMBRANE_POINTS; i++) {
     constraints.push(
       Matter.Constraint.create({
@@ -90,14 +87,25 @@ export function createCell(
 
   Matter.Composite.add(world, [...membraneParticles, center, ...constraints]);
 
-  return { properties, membraneParticles, constraints, center };
+  // Pre-built endocytosis system: adhesion sensor + endocytosis effector + cascade
+  const adhesionSensor = createModule('adhesion_sensor', 0);
+  const endocytosis = createModule('endocytosis', 1);
+  const startCascade = createCascade(adhesionSensor.id, endocytosis.id);
+
+  return {
+    properties,
+    membraneParticles,
+    constraints,
+    center,
+    modules: [adhesionSensor, endocytosis],
+    cascades: [startCascade],
+  };
 }
 
 export function getCellCenter(cell: Cell): { x: number; y: number } {
   return { x: cell.center.position.x, y: cell.center.position.y };
 }
 
-/** Grow the cell by scaling all constraint lengths */
 export function growCell(cell: Cell, amount: number): void {
   cell.properties.growthScale += amount;
   for (const constraint of cell.constraints) {
@@ -107,7 +115,6 @@ export function growCell(cell: Cell, amount: number): void {
   }
 }
 
-/** Get smoothed membrane points using Catmull-Rom interpolation */
 export function getMembranePoints(cell: Cell): { x: number; y: number }[] {
   return cell.membraneParticles.map(p => ({
     x: p.position.x,
