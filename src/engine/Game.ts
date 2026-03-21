@@ -1,10 +1,11 @@
-import { PhysicsWorld, createPhysicsWorld, stepPhysics } from './Physics';
+import { createPhysicsWorld, stepPhysics, PhysicsWorld } from './Physics';
 import { Camera, createCamera } from './Camera';
 import { render } from './Renderer';
 import { Cell, createCell, getCellCenter } from '../creature/Cell';
 import { Environment, createEnvironment, setupCollisions, updateEnvironment } from '../simulation/Environment';
 import { EnergyState, createEnergyState } from '../simulation/Energy';
-import { drawHUD } from '../ui/HUD';
+import { updateHUD, updateInspector } from '../ui/HUD';
+import { SelectionState, createSelectionState, handleClick } from '../ui/Selection';
 import { createFoodParticle } from '../simulation/Food';
 
 const WORLD_WIDTH = 2000;
@@ -18,6 +19,7 @@ export interface GameState {
   energy: EnergyState;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
+  selection: SelectionState;
 }
 
 export function initGame(canvas: HTMLCanvasElement): GameState {
@@ -30,6 +32,7 @@ export function initGame(canvas: HTMLCanvasElement): GameState {
   const cell = createCell(physics.world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
   const env = createEnvironment(WORLD_WIDTH, WORLD_HEIGHT);
   const energy = createEnergyState();
+  const selection = createSelectionState();
 
   setupCollisions(physics.engine, cell, env, physics.world);
 
@@ -41,19 +44,34 @@ export function initGame(canvas: HTMLCanvasElement): GameState {
     env.food.push(createFoodParticle(physics.world, x, y));
   }
 
-  return { physics, camera, cell, env, energy, canvas, ctx };
+  // Click handler for selection
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const screenX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const screenY = (e.clientY - rect.top) * (canvas.height / rect.height);
+    handleClick(screenX, screenY, camera, canvas, cell, env, selection);
+  });
+
+  return { physics, camera, cell, env, energy, canvas, ctx, selection };
 }
 
 export function resizeCanvas(canvas: HTMLCanvasElement): void {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  const container = document.getElementById('canvas-container');
+  if (container) {
+    canvas.width = container.clientWidth;
+    canvas.height = container.clientHeight;
+  } else {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
 }
 
 export function gameLoop(state: GameState): void {
   let lastTime = performance.now();
+  let hudTimer = 0;
 
   function tick(now: number): void {
-    const delta = Math.min(now - lastTime, 32); // cap at ~30fps min
+    const delta = Math.min(now - lastTime, 32);
     lastTime = now;
 
     // Update
@@ -66,8 +84,15 @@ export function gameLoop(state: GameState): void {
     state.camera.y += (center.y - state.camera.y) * 0.05;
 
     // Render
-    render(state.ctx, state.canvas, state.camera, state.cell, state.env, state.physics);
-    drawHUD(state.ctx, state.energy);
+    render(state.ctx, state.canvas, state.camera, state.cell, state.env, state.physics, state.selection);
+
+    // Update DOM panels at ~10fps to avoid thrashing
+    hudTimer += delta;
+    if (hudTimer > 100) {
+      hudTimer = 0;
+      updateHUD(state.energy, state.cell);
+      updateInspector(state.selection);
+    }
 
     requestAnimationFrame(tick);
   }

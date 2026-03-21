@@ -1,6 +1,6 @@
 import Matter from 'matter-js';
 import { Cell } from '../creature/Cell';
-import { FoodParticle, createFoodParticle, stickFoodToBody, removeFood } from './Food';
+import { FoodParticle, createFoodParticle, stickFoodToBody, removeFood, nudgeFood } from './Food';
 import { EnergyState, addEnergy } from './Energy';
 import { growCell } from '../creature/Cell';
 
@@ -68,6 +68,11 @@ export function updateEnvironment(
     const y = margin + Math.random() * (env.worldHeight - margin * 2);
     env.food.push(createFoodParticle(world, x, y));
     env.lastSpawnTime = now;
+  }
+
+  // Nudge slow food to keep things moving
+  for (const f of env.food) {
+    nudgeFood(f);
   }
 
   // Check stuck food for absorption

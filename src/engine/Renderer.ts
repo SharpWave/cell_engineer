@@ -1,12 +1,14 @@
-import { Cell, getMembranePoints } from '../creature/Cell';
+import { Cell, getMembranePoints, getCellCenter } from '../creature/Cell';
 import { Environment } from '../simulation/Environment';
 import { Camera, applyCamera } from './Camera';
 import { PhysicsWorld } from './Physics';
+import { SelectionState } from '../ui/Selection';
 
 const BG_COLOR = '#1a1a2e';
 const CELL_FILL = '#d4886b';
 const CELL_STROKE = '#e8a888';
 const CELL_STROKE_WIDTH = 4;
+const SELECTION_COLOR = '#ffffff';
 
 export function render(
   ctx: CanvasRenderingContext2D,
@@ -15,6 +17,7 @@ export function render(
   cell: Cell,
   env: Environment,
   physics: PhysicsWorld,
+  selection: SelectionState,
 ): void {
   // Clear
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -31,15 +34,30 @@ export function render(
     if (food.absorbed) continue;
     const pos = food.body.position;
     const angle = food.body.angle;
+    const isSelected = selection.current?.type === 'food' && selection.current.food === food;
 
     ctx.save();
     ctx.translate(pos.x, pos.y);
     ctx.rotate(angle);
 
     ctx.fillStyle = food.color;
+    ctx.strokeStyle = isSelected ? SELECTION_COLOR : food.color;
+    ctx.lineWidth = isSelected ? 3 : 3;
+    ctx.globalAlpha = food.stuck ? 0.7 : 1.0;
+
+    // Draw selection ring behind
+    if (isSelected) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 16, 0, Math.PI * 2);
+      ctx.strokeStyle = SELECTION_COLOR;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.5;
+      ctx.stroke();
+      ctx.globalAlpha = food.stuck ? 0.7 : 1.0;
+    }
+
     ctx.strokeStyle = food.color;
     ctx.lineWidth = 3;
-    ctx.globalAlpha = food.stuck ? 0.7 : 1.0;
 
     if (food.shape === 'circle') {
       const r = (food.body as any).circleRadius || 7;
@@ -65,7 +83,8 @@ export function render(
   }
 
   // Draw cell membrane with smooth curve
-  drawCell(ctx, cell);
+  const cellSelected = selection.current?.type === 'cell';
+  drawCell(ctx, cell, cellSelected);
 }
 
 function drawBoundary(ctx: CanvasRenderingContext2D, w: number, h: number): void {
@@ -74,9 +93,27 @@ function drawBoundary(ctx: CanvasRenderingContext2D, w: number, h: number): void
   ctx.strokeRect(0, 0, w, h);
 }
 
-function drawCell(ctx: CanvasRenderingContext2D, cell: Cell): void {
+function drawCell(ctx: CanvasRenderingContext2D, cell: Cell, selected: boolean): void {
   const points = getMembranePoints(cell);
   if (points.length < 3) return;
+
+  // Selection glow
+  if (selected) {
+    const center = getCellCenter(cell);
+    let maxR = 0;
+    for (const p of points) {
+      const dx = p.x - center.x;
+      const dy = p.y - center.y;
+      maxR = Math.max(maxR, Math.sqrt(dx * dx + dy * dy));
+    }
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, maxR + 8, 0, Math.PI * 2);
+    ctx.strokeStyle = SELECTION_COLOR;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.35;
+    ctx.stroke();
+    ctx.globalAlpha = 1.0;
+  }
 
   ctx.fillStyle = CELL_FILL;
   ctx.strokeStyle = CELL_STROKE;
