@@ -1,14 +1,23 @@
 import { Cell, getMembranePoints, getCellCenter } from '../creature/Cell';
 import { Environment } from '../simulation/Environment';
+import { EnergyState } from '../simulation/Energy';
+import { LightCycle, getLightLevel, getLightPhase } from '../simulation/LightCycle';
 import { Camera, applyCamera } from './Camera';
 import { PhysicsWorld } from './Physics';
 import { SelectionState } from '../ui/Selection';
 
-const BG_COLOR = '#1a1a2e';
+// Background interpolates between these based on light level
+const BG_DARK = [16, 16, 30];     // #10101e
+const BG_BRIGHT = [30, 32, 58];   // #1e203a
+
 const CELL_FILL = '#d4886b';
 const CELL_STROKE = '#e8a888';
 const CELL_STROKE_WIDTH = 4;
 const SELECTION_COLOR = '#ffffff';
+
+const ENERGY_PARTICLE_COLOR = '#e0c878';
+const WASTE_PARTICLE_COLOR = '#7a5c3a';
+const PARTICLE_RADIUS = 3;
 
 export function render(
   ctx: CanvasRenderingContext2D,
@@ -18,10 +27,18 @@ export function render(
   env: Environment,
   physics: PhysicsWorld,
   selection: SelectionState,
+  energy: EnergyState,
+  lightCycle: LightCycle,
+  now: number,
 ): void {
-  // Clear
+  const light = getLightLevel(lightCycle, now);
+
+  // Clear with light-tinted background
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = BG_COLOR;
+  const r = Math.round(BG_DARK[0] + (BG_BRIGHT[0] - BG_DARK[0]) * light);
+  const g = Math.round(BG_DARK[1] + (BG_BRIGHT[1] - BG_DARK[1]) * light);
+  const b = Math.round(BG_DARK[2] + (BG_BRIGHT[2] - BG_DARK[2]) * light);
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   applyCamera(ctx, camera, canvas.width, canvas.height);
@@ -41,11 +58,10 @@ export function render(
     ctx.rotate(angle);
 
     ctx.fillStyle = food.color;
-    ctx.strokeStyle = isSelected ? SELECTION_COLOR : food.color;
-    ctx.lineWidth = isSelected ? 3 : 3;
+    ctx.strokeStyle = food.color;
+    ctx.lineWidth = 3;
     ctx.globalAlpha = food.stuck ? 0.7 : 1.0;
 
-    // Draw selection ring behind
     if (isSelected) {
       ctx.beginPath();
       ctx.arc(0, 0, 16, 0, Math.PI * 2);
@@ -85,6 +101,15 @@ export function render(
   // Draw cell membrane with smooth curve
   const cellSelected = selection.current?.type === 'cell';
   drawCell(ctx, cell, cellSelected);
+
+  // Draw internal particles (energy + waste) inside cell
+  drawInternalParticles(ctx, cell, energy);
+
+  // Reset transform for overlay UI
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  // Draw light cycle indicator in lower-left
+  drawLightIndicator(ctx, canvas, lightCycle, now);
 }
 
 function drawBoundary(ctx: CanvasRenderingContext2D, w: number, h: number): void {
@@ -97,7 +122,6 @@ function drawCell(ctx: CanvasRenderingContext2D, cell: Cell, selected: boolean):
   const points = getMembranePoints(cell);
   if (points.length < 3) return;
 
-  // Selection glow
   if (selected) {
     const center = getCellCenter(cell);
     let maxR = 0;
@@ -121,7 +145,6 @@ function drawCell(ctx: CanvasRenderingContext2D, cell: Cell, selected: boolean):
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  // Draw smooth closed Catmull-Rom spline through membrane points
   ctx.beginPath();
   const n = points.length;
 
@@ -135,7 +158,6 @@ function drawCell(ctx: CanvasRenderingContext2D, cell: Cell, selected: boolean):
       ctx.moveTo(p1.x, p1.y);
     }
 
-    // Catmull-Rom to cubic bezier conversion
     const cp1x = p1.x + (p2.x - p0.x) / 6;
     const cp1y = p1.y + (p2.y - p0.y) / 6;
     const cp2x = p2.x - (p3.x - p1.x) / 6;
@@ -147,4 +169,85 @@ function drawCell(ctx: CanvasRenderingContext2D, cell: Cell, selected: boolean):
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+}
+
+function drawInternalParticles(
+  ctx: CanvasRenderingContext2D,
+  cell: Cell,
+  energy: EnergyState,
+): void {
+  const center = getCellCenter(cell);
+
+  for (const p of energy.particles) {
+    ctx.beginPath();
+    ctx.arc(center.x + p.x, center.y + p.y, PARTICLE_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = p.type === 'energy' ? ENERGY_PARTICLE_COLOR : WASTE_PARTICLE_COLOR;
+    ctx.globalAlpha = 0.85;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1.0;
+}
+
+function drawLightIndicator(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  lightCycle: LightCycle,
+  now: number,
+): void {
+  const size = 80;
+  const padding = 16;
+  const cx = padding + size / 2;
+  const cy = canvas.height - padding - size / 2;
+  const radius = size / 2 - 4;
+
+  const light = getLightLevel(lightCycle, now);
+  const phase = getLightPhase(lightCycle, now);
+
+  // Background circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(10, 10, 20, 0.7)';
+  ctx.fill();
+  ctx.strokeStyle = '#2a2a4a';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Draw sine wave inside the circle
+  ctx.beginPath();
+  const wavePoints = 60;
+  for (let i = 0; i <= wavePoints; i++) {
+    const t = i / wavePoints;
+    const wx = cx - radius + t * radius * 2;
+    const waveVal = Math.sin(t * Math.PI * 2 - Math.PI / 2);
+    const wy = cy - waveVal * (radius * 0.5);
+    if (i === 0) ctx.moveTo(wx, wy);
+    else ctx.lineTo(wx, wy);
+  }
+  ctx.strokeStyle = '#555580';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Current position dot on the wave
+  const dotX = cx - radius + phase * radius * 2;
+  const dotWave = Math.sin(phase * Math.PI * 2 - Math.PI / 2);
+  const dotY = cy - dotWave * (radius * 0.5);
+
+  ctx.beginPath();
+  ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+  // Color the dot from dark blue to bright yellow based on light level
+  const dr = Math.round(40 + light * 200);
+  const dg = Math.round(40 + light * 180);
+  const db = Math.round(80 + light * (- 40));
+  ctx.fillStyle = `rgb(${dr},${dg},${db})`;
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Label
+  ctx.font = '10px monospace';
+  ctx.fillStyle = '#8888a8';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('LIGHT', cx, cy + radius + 4);
 }

@@ -1,12 +1,14 @@
 import Matter from 'matter-js';
 import { Cell } from '../creature/Cell';
 import { FoodParticle, createFoodParticle, stickFoodToBody, removeFood, nudgeFood } from './Food';
-import { EnergyState, addEnergy } from './Energy';
+import { EnergyState, addEnergy, updateWaste, updateParticles } from './Energy';
 import { growCell } from '../creature/Cell';
+import { LightCycle, getLightLevel } from './LightCycle';
 
 const MAX_FOOD = 40;
-const SPAWN_INTERVAL = 800;   // ms between food spawns
-const ABSORB_DELAY = 1000;    // ms food must stick before absorbing
+const SPAWN_INTERVAL_BRIGHT = 600;  // ms at peak light
+const SPAWN_INTERVAL_DARK = 2000;   // ms in darkness
+const ABSORB_DELAY = 1000;
 
 export interface Environment {
   food: FoodParticle[];
@@ -60,9 +62,15 @@ export function updateEnvironment(
   cell: Cell,
   energy: EnergyState,
   now: number,
+  delta: number,
+  lightCycle: LightCycle,
 ): void {
-  // Spawn food
-  if (now - env.lastSpawnTime > SPAWN_INTERVAL && env.food.length < MAX_FOOD) {
+  const light = getLightLevel(lightCycle, now);
+
+  // Spawn interval scales with light: brighter = more food
+  const spawnInterval = SPAWN_INTERVAL_DARK + (SPAWN_INTERVAL_BRIGHT - SPAWN_INTERVAL_DARK) * light;
+
+  if (now - env.lastSpawnTime > spawnInterval && env.food.length < MAX_FOOD) {
     const margin = 60;
     const x = margin + Math.random() * (env.worldWidth - margin * 2);
     const y = margin + Math.random() * (env.worldHeight - margin * 2);
@@ -70,7 +78,7 @@ export function updateEnvironment(
     env.lastSpawnTime = now;
   }
 
-  // Nudge slow food to keep things moving
+  // Nudge slow food
   for (const f of env.food) {
     nudgeFood(f);
   }
@@ -89,4 +97,9 @@ export function updateEnvironment(
       env.food.splice(i, 1);
     }
   }
+
+  // Update waste accumulation and internal particles
+  updateWaste(energy, delta);
+  // Use cell base radius for particle containment
+  updateParticles(energy, cell.properties.baseRadius * cell.properties.growthScale, delta);
 }

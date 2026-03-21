@@ -4,6 +4,7 @@ import { render } from './Renderer';
 import { Cell, createCell, getCellCenter } from '../creature/Cell';
 import { Environment, createEnvironment, setupCollisions, updateEnvironment } from '../simulation/Environment';
 import { EnergyState, createEnergyState } from '../simulation/Energy';
+import { LightCycle, createLightCycle } from '../simulation/LightCycle';
 import { updateHUD, updateInspector } from '../ui/HUD';
 import { SelectionState, createSelectionState, handleClick } from '../ui/Selection';
 import { createFoodParticle } from '../simulation/Food';
@@ -17,6 +18,7 @@ export interface GameState {
   cell: Cell;
   env: Environment;
   energy: EnergyState;
+  lightCycle: LightCycle;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   selection: SelectionState;
@@ -27,11 +29,13 @@ export function initGame(canvas: HTMLCanvasElement): GameState {
 
   resizeCanvas(canvas);
 
+  const now = performance.now();
   const physics = createPhysicsWorld(WORLD_WIDTH, WORLD_HEIGHT);
   const camera = createCamera(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
   const cell = createCell(physics.world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
   const env = createEnvironment(WORLD_WIDTH, WORLD_HEIGHT);
   const energy = createEnergyState();
+  const lightCycle = createLightCycle(now);
   const selection = createSelectionState();
 
   setupCollisions(physics.engine, cell, env, physics.world);
@@ -52,7 +56,7 @@ export function initGame(canvas: HTMLCanvasElement): GameState {
     handleClick(screenX, screenY, camera, canvas, cell, env, selection);
   });
 
-  return { physics, camera, cell, env, energy, canvas, ctx, selection };
+  return { physics, camera, cell, env, energy, lightCycle, canvas, ctx, selection };
 }
 
 export function resizeCanvas(canvas: HTMLCanvasElement): void {
@@ -76,7 +80,10 @@ export function gameLoop(state: GameState): void {
 
     // Update
     stepPhysics(state.physics, delta);
-    updateEnvironment(state.env, state.physics.world, state.cell, state.energy, now);
+    updateEnvironment(
+      state.env, state.physics.world, state.cell, state.energy,
+      now, delta, state.lightCycle,
+    );
 
     // Camera follows cell
     const center = getCellCenter(state.cell);
@@ -84,14 +91,17 @@ export function gameLoop(state: GameState): void {
     state.camera.y += (center.y - state.camera.y) * 0.05;
 
     // Render
-    render(state.ctx, state.canvas, state.camera, state.cell, state.env, state.physics, state.selection);
+    render(
+      state.ctx, state.canvas, state.camera, state.cell, state.env,
+      state.physics, state.selection, state.energy, state.lightCycle, now,
+    );
 
-    // Update DOM panels at ~10fps to avoid thrashing
+    // Update DOM panels at ~10fps
     hudTimer += delta;
     if (hudTimer > 100) {
       hudTimer = 0;
       updateHUD(state.energy, state.cell);
-      updateInspector(state.selection);
+      updateInspector(state.selection, state.energy);
     }
 
     requestAnimationFrame(tick);

@@ -55,7 +55,7 @@ export function createFoodParticle(
     body,
     shape,
     color,
-    energyValue: Math.floor(5 + Math.random() * 10),
+    energyValue: 1,
     stuck: false,
     stuckTime: 0,
     stuckConstraint: null,

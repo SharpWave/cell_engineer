@@ -4,13 +4,15 @@ import { SelectionState } from './Selection';
 
 export function updateHUD(energy: EnergyState, cell: Cell): void {
   const energyEl = document.getElementById('energy-display');
+  const wasteEl = document.getElementById('waste-display');
   const growthEl = document.getElementById('growth-display');
 
   if (energyEl) energyEl.textContent = String(energy.current);
+  if (wasteEl) wasteEl.textContent = String(energy.waste);
   if (growthEl) growthEl.textContent = cell.properties.growthScale.toFixed(2) + 'x';
 }
 
-export function updateInspector(selection: SelectionState): void {
+export function updateInspector(selection: SelectionState, energy?: EnergyState): void {
   const el = document.getElementById('inspector-content');
   if (!el) return;
 
@@ -28,6 +30,8 @@ export function updateInspector(selection: SelectionState): void {
       <div class="stat-row"><span class="stat-label">Stiffness</span><span class="stat-value">${props.stiffness.toFixed(2)}</span></div>
       <div class="stat-row"><span class="stat-label">Base Radius</span><span class="stat-value">${props.baseRadius}</span></div>
       <div class="stat-row"><span class="stat-label">Growth</span><span class="stat-value">${props.growthScale.toFixed(2)}x</span></div>
+      <div class="stat-row"><span class="stat-label">Energy</span><span class="stat-value energy">${energy?.current ?? 0}</span></div>
+      <div class="stat-row"><span class="stat-label">Waste</span><span class="stat-value" style="color:#7a5c3a">${energy?.waste ?? 0}</span></div>
       <div class="prop-section">
         <div class="prop-title">Signal Cascades</div>
         <div class="stat-row"><span class="stat-label">food_contact</span><span class="stat-value">→ endocytosis</span></div>

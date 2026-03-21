@@ -6,12 +6,126 @@
   <title>Flatland Evolution</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
-    canvas { display: block; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: monospace; color: #c8c8d4; }
+
+    #app {
+      display: flex;
+      width: 100%;
+      height: 100%;
+    }
+
+    #left-panel {
+      width: 220px;
+      min-width: 220px;
+      background: #12122a;
+      border-right: 2px solid #2a2a4a;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+
+    #canvas-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #game-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    #right-panel {
+      width: 280px;
+      min-width: 280px;
+      background: #12122a;
+      border-left: 2px solid #2a2a4a;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+    }
+
+    .panel-title {
+      font-size: 14px;
+      font-weight: bold;
+      color: #e0c878;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid #2a2a4a;
+      padding-bottom: 8px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      padding: 4px 0;
+    }
+
+    .stat-label { color: #8888a8; }
+    .stat-value { color: #e8e8f0; }
+    .stat-value.energy { color: #e0c878; font-weight: bold; }
+
+    #inspector-content {
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .inspector-empty {
+      color: #555570;
+      font-style: italic;
+      font-size: 12px;
+    }
+
+    .prop-section {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #2a2a4a;
+    }
+
+    .prop-title {
+      font-size: 12px;
+      color: #e0c878;
+      margin-bottom: 4px;
+    }
   </style>
-  <script type="module" crossorigin src="/assets/index--rDLHxZt.js"></script>
+  <script type="module" crossorigin src="/assets/index-CdHFqwl5.js"></script>
 </head>
 <body>
-  <canvas id="game-canvas"></canvas>
+  <div id="app">
+    <div id="left-panel">
+      <div class="panel-title">Controls</div>
+      <div class="stat-row">
+        <span class="stat-label">Energy</span>
+        <span class="stat-value energy" id="energy-display">0</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Waste</span>
+        <span class="stat-value" id="waste-display" style="color:#7a5c3a; font-weight:bold">0</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Cells</span>
+        <span class="stat-value" id="cell-count">1</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Growth</span>
+        <span class="stat-value" id="growth-display">1.00x</span>
+      </div>
+    </div>
+    <div id="canvas-container">
+      <canvas id="game-canvas"></canvas>
+    </div>
+    <div id="right-panel">
+      <div class="panel-title">Inspector</div>
+      <div id="inspector-content">
+        <span class="inspector-empty">Click a cell or food particle to inspect it.</span>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
