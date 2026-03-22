@@ -122,23 +122,6 @@
       max-width: 100px;
     }
 
-    .eng-slider {
-      -webkit-appearance: none;
-      appearance: none;
-      height: 4px;
-      background: #3a3a5a;
-      border-radius: 2px;
-      outline: none;
-    }
-    .eng-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 12px;
-      height: 12px;
-      background: #e0c878;
-      border-radius: 50%;
-      cursor: pointer;
-    }
   </style>
 </head>
 <body>
@@ -168,28 +151,48 @@
       <div class="prop-section">
         <div class="prop-title">Food Spawning</div>
         <div class="stat-row" style="align-items:center">
-          <span class="stat-label" style="color:#ffd700">Carbs</span>
+          <span class="stat-label" style="color:#ffd700">Carbs/day</span>
           <span style="display:flex;align-items:center;gap:4px">
-            <input type="range" min="0" max="50" value="10" class="eng-slider" id="slider-carb-rate" style="width:60px">
-            <span class="stat-value" id="val-carb-rate" style="width:24px;text-align:right">10</span>
+            <input type="number" value="100" id="input-carb-rate" style="width:50px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:right">
             <button class="eng-btn" id="btn-spawn-carb" style="margin:0;padding:2px 6px;font-size:10px">+1</button>
           </span>
         </div>
         <div class="stat-row" style="align-items:center">
-          <span class="stat-label" style="color:#4a8aff">Protein</span>
+          <span class="stat-label" style="color:#4a8aff">Protein/day</span>
           <span style="display:flex;align-items:center;gap:4px">
-            <input type="range" min="0" max="50" value="10" class="eng-slider" id="slider-mprotein-rate" style="width:60px">
-            <span class="stat-value" id="val-mprotein-rate" style="width:24px;text-align:right">10</span>
+            <input type="number" value="25" id="input-mprotein-rate" style="width:50px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:right">
             <button class="eng-btn" id="btn-spawn-mprotein" style="margin:0;padding:2px 6px;font-size:10px">+1</button>
           </span>
         </div>
         <div class="stat-row" style="align-items:center">
-          <span class="stat-label" style="color:#7c4dff">Stat. Prot.</span>
+          <span class="stat-label" style="color:#7c4dff">Stat. Prot/day</span>
           <span style="display:flex;align-items:center;gap:4px">
-            <input type="range" min="0" max="50" value="0" class="eng-slider" id="slider-sprotein-rate" style="width:60px">
-            <span class="stat-value" id="val-sprotein-rate" style="width:24px;text-align:right">0</span>
+            <input type="number" value="0" id="input-sprotein-rate" style="width:50px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:right">
             <button class="eng-btn" id="btn-spawn-sprotein" style="margin:0;padding:2px 6px;font-size:10px">+1</button>
           </span>
+        </div>
+      </div>
+      <div class="prop-section">
+        <div class="prop-title">Daily Stats</div>
+        <div class="stat-row">
+          <span class="stat-label">Carbs spawned</span>
+          <span class="stat-value" id="daily-carbs-spawned" style="color:#ffd700">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Carbs consumed</span>
+          <span class="stat-value" id="daily-carbs-consumed" style="color:#ffd700">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Protein spawned</span>
+          <span class="stat-value" id="daily-protein-spawned" style="color:#4a8aff">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Protein produced</span>
+          <span class="stat-value" id="daily-protein-produced" style="color:#4a8aff">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Protein consumed</span>
+          <span class="stat-value" id="daily-protein-consumed" style="color:#4a8aff">0</span>
         </div>
       </div>
       <div class="prop-section">

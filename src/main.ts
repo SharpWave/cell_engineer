@@ -33,20 +33,18 @@ focusBtn.addEventListener('click', () => {
   state.selection.current = { type: 'cell', cell };
 });
 
-// --- Food spawn rate sliders ---
-function wireSpawnSlider(sliderId: string, valId: string, setter: (v: number) => void): void {
-  const slider = document.getElementById(sliderId) as HTMLInputElement;
-  const valEl = document.getElementById(valId)!;
-  slider.addEventListener('input', () => {
-    const v = parseInt(slider.value);
-    valEl.textContent = String(v);
-    setter(v / 10); // slider 0-50 maps to 0x-5x
+// --- Food spawn rate inputs (food/day) ---
+function wireSpawnInput(inputId: string, setter: (v: number) => void): void {
+  const input = document.getElementById(inputId) as HTMLInputElement;
+  input.addEventListener('change', () => {
+    const v = parseFloat(input.value);
+    if (!isNaN(v) && v >= 0) setter(v);
   });
 }
 
-wireSpawnSlider('slider-carb-rate', 'val-carb-rate', v => { state.env.carbSpawnRate = v; });
-wireSpawnSlider('slider-mprotein-rate', 'val-mprotein-rate', v => { state.env.movingProteinSpawnRate = v; });
-wireSpawnSlider('slider-sprotein-rate', 'val-sprotein-rate', v => { state.env.stationaryProteinSpawnRate = v; });
+wireSpawnInput('input-carb-rate', v => { state.env.carbSpawnRate = v; });
+wireSpawnInput('input-mprotein-rate', v => { state.env.movingProteinSpawnRate = v; });
+wireSpawnInput('input-sprotein-rate', v => { state.env.stationaryProteinSpawnRate = v; });
 
 // --- Manual spawn buttons ---
 document.getElementById('btn-spawn-carb')!.addEventListener('click', () => {

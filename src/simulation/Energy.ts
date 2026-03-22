@@ -44,10 +44,24 @@ export function addWaste(state: EnergyState, amount: number): void {
   }
 }
 
+/** Timestamped event log for rolling window stats */
+export interface ResourceEvent { time: number; amount: number; }
+
+/** Global spend logs — tracked automatically by spend functions, pruned by Environment */
+export const spendLog = {
+  carbs: [] as ResourceEvent[],
+  protein: [] as ResourceEvent[],
+};
+
+/** Current game time — set each frame by Environment so spend functions can timestamp */
+export let currentGameTime = 0;
+export function setCurrentGameTime(t: number): void { currentGameTime = t; }
+
 export function spendCarbs(state: EnergyState, amount: number): boolean {
   if (state.carbs < amount) return false;
   state.carbs -= amount;
   removeParticles(state, 'carb', amount);
+  spendLog.carbs.push({ time: currentGameTime, amount });
   return true;
 }
 
@@ -55,7 +69,25 @@ export function spendProtein(state: EnergyState, amount: number): boolean {
   if (state.protein < amount) return false;
   state.protein -= amount;
   removeParticles(state, 'protein', amount);
+  spendLog.protein.push({ time: currentGameTime, amount });
   return true;
+}
+
+/** Sum events within the last `window` ms */
+export function sumEvents(events: ResourceEvent[], now: number, window: number): number {
+  let total = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (now - events[i].time <= window) total += events[i].amount;
+    else break; // events are in chronological order
+  }
+  return total;
+}
+
+/** Remove events older than `window` ms */
+export function pruneEvents(events: ResourceEvent[], now: number, window: number): void {
+  let cutoff = 0;
+  while (cutoff < events.length && now - events[cutoff].time > window) cutoff++;
+  if (cutoff > 0) events.splice(0, cutoff);
 }
 
 function removeParticles(state: EnergyState, type: InternalParticle['type'], count: number): void {
@@ -180,6 +212,8 @@ export interface ParticleExpulsionResult {
   expelledCarbPositions: Vec2[];
   /** World-space positions of expelled protein particles (for spawning food) */
   expelledProteinPositions: Vec2[];
+  /** World-space positions of expelled waste particles (for spawning waste) */
+  expelledWastePositions: Vec2[];
 }
 
 /**
@@ -210,6 +244,7 @@ export function updateParticles(
   let expelledProtein = 0;
   const expelledCarbPositions: Vec2[] = [];
   const expelledProteinPositions: Vec2[] = [];
+  const expelledWastePositions: Vec2[] = [];
 
   // Inter-particle forces (O(n^2) but particle counts are small)
   const particles = state.particles;
@@ -299,6 +334,10 @@ export function updateParticles(
     // Membrane collision
     if (!isInsidePolygon(p.x, p.y, poly)) {
       if (p.type === 'waste' && wastePermeable) {
+        expelledWastePositions.push({
+          x: cellCenter.x + p.x,
+          y: cellCenter.y + p.y,
+        });
         state.particles.splice(i, 1);
         expelledWaste++;
       } else if (p.type === 'carb' && carbPermeable) {
@@ -321,5 +360,5 @@ export function updateParticles(
     }
   }
 
-  return { expelledWaste, expelledCarbs, expelledProtein, expelledCarbPositions, expelledProteinPositions };
+  return { expelledWaste, expelledCarbs, expelledProtein, expelledCarbPositions, expelledProteinPositions, expelledWastePositions };
 }

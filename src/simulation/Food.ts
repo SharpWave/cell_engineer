@@ -1,7 +1,7 @@
 import Matter from 'matter-js';
 
 export type FoodShape = 'circle' | 'triangle';
-export type FoodResourceType = 'carb' | 'protein';
+export type FoodResourceType = 'carb' | 'protein' | 'waste';
 
 export interface FoodParticle {
   body: Matter.Body;
@@ -19,6 +19,7 @@ export interface FoodParticle {
 
 const CARB_COLORS = ['#ffd700', '#ffb300', '#ffe066'];
 const PROTEIN_COLORS = ['#4a8aff', '#00b0ff', '#7c4dff'];
+const WASTE_COLORS = ['#7a5c3a', '#6b4e2e', '#8a6a42'];
 const FOOD_COLLISION_CATEGORY = 0x0004;
 
 export function createFoodParticle(
@@ -30,10 +31,13 @@ export function createFoodParticle(
 ): FoodParticle {
   const shape: FoodShape = Math.random() > 0.5 ? 'circle' : 'triangle';
   const radius = 5 + Math.random() * 5;
-  const colors = resourceType === 'carb' ? CARB_COLORS : PROTEIN_COLORS;
+  const colors = resourceType === 'carb' ? CARB_COLORS
+    : resourceType === 'protein' ? PROTEIN_COLORS
+    : WASTE_COLORS;
   const color = colors[Math.floor(Math.random() * colors.length)];
 
-  const frictionAir = stationary ? 0.8 : 0.002;
+  const isWaste = resourceType === 'waste';
+  const frictionAir = stationary ? 0.8 : (isWaste ? 0.01 : 0.002);
   const mass = stationary ? 50 : undefined;
 
   let body: Matter.Body;
@@ -56,6 +60,8 @@ export function createFoodParticle(
 
   if (mass !== undefined) {
     Matter.Body.setMass(body, mass);
+  } else if (isWaste) {
+    Matter.Body.setMass(body, body.mass * 10);
   }
 
   // Floating food drifts; stationary food stays put

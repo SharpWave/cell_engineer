@@ -128,13 +128,13 @@ export function buildEngineeringPanel(
 
     if (subtype === 'internal_sensor') {
       addSection.appendChild(buildConfigSelect('Resource', ['carb', 'protein', 'waste'], config.senseResource ?? 'waste', v => { config.senseResource = v as any; }));
-      addSection.appendChild(buildConfigSlider('Threshold', 1, 30, config.threshold ?? 5, v => { config.threshold = v; }));
+      addSection.appendChild(buildConfigNumber('Threshold', config.threshold ?? 5, v => { config.threshold = v; }));
       addSection.appendChild(buildConfigSelect('Mode', ['above', 'below'], config.mode ?? 'above', v => { config.mode = v as any; }));
     }
     if (subtype === 'membrane_sensor') {
       addSection.appendChild(buildConfigSelect('Side', ['external', 'internal'], config.membraneSide ?? 'external', v => { config.membraneSide = v as any; }));
       addSection.appendChild(buildConfigSelect('Target', ['carb', 'protein', 'waste', 'cell'], config.senseTarget ?? 'carb', v => { config.senseTarget = v as any; }));
-      addSection.appendChild(buildConfigSlider('Threshold', 1, 20, config.threshold ?? 1, v => { config.threshold = v; }));
+      addSection.appendChild(buildConfigNumber('Threshold', config.threshold ?? 1, v => { config.threshold = v; }));
       addSection.appendChild(buildConfigSelect('Mode', ['above', 'below'], config.mode ?? 'above', v => { config.mode = v as any; }));
     }
     if (subtype === 'membrane_transporter') {
@@ -147,14 +147,14 @@ export function buildEngineeringPanel(
       addSection.appendChild(buildConfigSelect('Mode', ['adherence', 'repulsion'], config.adherenceMode ?? 'adherence', v => { config.adherenceMode = v as any; }));
     }
     if (subtype === 'light_sensor') {
-      addSection.appendChild(buildConfigSlider('Light %', 0, 100, config.threshold ?? 50, v => { config.threshold = v; }));
+      addSection.appendChild(buildConfigNumber('Light %', config.threshold ?? 50, v => { config.threshold = v; }));
     }
     if (subtype === 'growth_mod') {
       addSection.appendChild(buildConfigSelect('Mode', ['grow', 'reduce'], config.growthMode ?? 'grow', v => { config.growthMode = v as any; }));
     }
     if (subtype === 'eye') {
       addSection.appendChild(buildConfigSelect('Target', ['carb', 'protein', 'cell'], config.eyeTarget ?? 'carb', v => { config.eyeTarget = v as any; }));
-      addSection.appendChild(buildConfigSlider('FOV (°)', 10, 180, config.fovDegrees ?? 90, v => { config.fovDegrees = v; }));
+      addSection.appendChild(buildConfigNumber('FOV (°)', config.fovDegrees ?? 90, v => { config.fovDegrees = v; }));
     }
     // foot has no config options
 
@@ -349,10 +349,8 @@ function buildConfigSelect(
   return row;
 }
 
-function buildConfigSlider(
+function buildConfigNumber(
   label: string,
-  min: number,
-  max: number,
   value: number,
   onChange: (value: number) => void,
 ): HTMLDivElement {
@@ -361,17 +359,13 @@ function buildConfigSlider(
   row.style.alignItems = 'center';
   row.innerHTML = `
     <span class="stat-label">${label}</span>
-    <span style="display:flex;align-items:center;gap:6px">
-      <input type="range" min="${min}" max="${max}" value="${value}" class="eng-slider">
-      <span class="stat-value">${value}</span>
-    </span>
+    <input type="number" value="${value}" class="eng-number-input"
+      style="width:60px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:right">
   `;
   const input = row.querySelector('input')!;
-  const valSpan = row.querySelector('.stat-value')!;
-  input.addEventListener('input', () => {
+  input.addEventListener('change', () => {
     const v = parseInt(input.value);
-    valSpan.textContent = String(v);
-    onChange(v);
+    if (!isNaN(v)) onChange(v);
   });
   return row;
 }

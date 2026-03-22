@@ -5,24 +5,21 @@ import {
   fingerprintSimilarity, applyCellStiffness, resizeCell, getCellMass,
 } from '../creature/Cell';
 import { FoodParticle, createFoodParticle, stickFoodToBody, removeFood, nudgeFood } from './Food';
-import { addCarbs, addProtein, addWaste, addResourceAt, updateParticles, spendCarbs, spendProtein } from './Energy';
+import {
+  addCarbs, addProtein, addWaste, addResourceAt, updateParticles, spendCarbs, spendProtein,
+  ResourceEvent, spendLog, currentGameTime, setCurrentGameTime, sumEvents, pruneEvents,
+} from './Energy';
 import { LightCycle, getLightLevel } from './LightCycle';
 import {
   updateModules, ModuleEffects, ModuleContext, SurfaceTarget,
   hasTransport, hasAdherence, hasRepulsion,
 } from '../creature/Module';
 
-const MAX_FOOD = 40;
-const SPAWN_INTERVAL_BRIGHT = 600;
-const SPAWN_INTERVAL_DARK = 2000;
 const ABSORB_DELAY = 1000;
-
-/** How often stationary protein spawns (ms) */
-const STATIONARY_PROTEIN_INTERVAL = 8000;
 const MAX_STATIONARY_PROTEIN = 10;
 
 /** 1 carb per module per day cycle (120,000 ms) */
-const DAY_CYCLE_MS = 120_000;
+export const DAY_CYCLE_MS = 120_000;
 const MAINTENANCE_RATE = 1 / DAY_CYCLE_MS; // per module per ms
 
 /** Growth: 5 protein per day cycle per growth module → 5% initial circumference */
@@ -38,10 +35,16 @@ export interface Environment {
   worldHeight: number;
   /** Per-cell effects cached for rendering, keyed by cell id */
   cellEffects: Map<number, ModuleEffects>;
-  /** Spawn rate multipliers (0 = off, 1 = default) */
+  /** Spawn rates in food per day (DAY_CYCLE_MS). 0 = off. */
   carbSpawnRate: number;
   movingProteinSpawnRate: number;
   stationaryProteinSpawnRate: number;
+  /** Rolling window resource event logs */
+  rollingStats: {
+    carbsSpawned: ResourceEvent[];
+    proteinSpawned: ResourceEvent[];
+    proteinProduced: ResourceEvent[];
+  };
 }
 
 export function createEnvironment(width: number, height: number): Environment {
@@ -53,9 +56,14 @@ export function createEnvironment(width: number, height: number): Environment {
     worldWidth: width,
     worldHeight: height,
     cellEffects: new Map(),
-    carbSpawnRate: 1,
-    movingProteinSpawnRate: 1,
+    carbSpawnRate: 100,
+    movingProteinSpawnRate: 25,
     stationaryProteinSpawnRate: 0,
+    rollingStats: {
+      carbsSpawned: [],
+      proteinSpawned: [],
+      proteinProduced: [],
+    },
   };
 }
 
@@ -70,6 +78,8 @@ export function spawnOneFood(
   const x = margin + Math.random() * (env.worldWidth - margin * 2);
   const y = margin + Math.random() * (env.worldHeight - margin * 2);
   env.food.push(createFoodParticle(world, x, y, type, stationary));
+  const log = type === 'carb' ? env.rollingStats.carbsSpawned : env.rollingStats.proteinSpawned;
+  log.push({ time: currentGameTime, amount: 1 });
 }
 
 export function setupCollisions(
@@ -163,6 +173,14 @@ export function updateEnvironment(
   lightCycle: LightCycle,
 ): void {
   const light = getLightLevel(lightCycle, now);
+
+  // Set game time for spend logging, then prune old events
+  setCurrentGameTime(now);
+  pruneEvents(env.rollingStats.carbsSpawned, now, DAY_CYCLE_MS);
+  pruneEvents(env.rollingStats.proteinSpawned, now, DAY_CYCLE_MS);
+  pruneEvents(env.rollingStats.proteinProduced, now, DAY_CYCLE_MS);
+  pruneEvents(spendLog.carbs, now, DAY_CYCLE_MS);
+  pruneEvents(spendLog.protein, now, DAY_CYCLE_MS);
 
   // --- Per-cell updates ---
   const newCells: Cell[] = [];
@@ -324,6 +342,7 @@ export function updateEnvironment(
           if (cell.properties.growthScale > 0.3) {
             resizeCell(cell, cell.properties.growthScale - GROWTH_PER_PROTEIN);
             addProtein(cell.energy, 1);
+            env.rollingStats.proteinProduced.push({ time: now, amount: 1 });
           }
         }
       }
@@ -344,7 +363,7 @@ export function updateEnvironment(
     }
 
     // Internal particles — determine transport flags from effects
-    const wasteExo = hasTransport(effects, 'waste', 'exo');
+    const wasteExo = hasTransport(effects, 'waste', 'exo') && hasAdherence(effects, 'internal', 'waste');
     const carbExo = hasTransport(effects, 'carb', 'exo');
     const proteinExo = hasTransport(effects, 'protein', 'exo');
 
@@ -365,15 +384,15 @@ export function updateEnvironment(
 
     // Expelled carbs become carb food
     for (const pos of result.expelledCarbPositions) {
-      if (env.food.length < MAX_FOOD + 20) {
-        env.food.push(createFoodParticle(world, pos.x, pos.y, 'carb'));
-      }
+      env.food.push(createFoodParticle(world, pos.x, pos.y, 'carb'));
     }
     // Expelled protein becomes protein food
     for (const pos of result.expelledProteinPositions) {
-      if (env.food.length < MAX_FOOD + 20) {
-        env.food.push(createFoodParticle(world, pos.x, pos.y, 'protein'));
-      }
+      env.food.push(createFoodParticle(world, pos.x, pos.y, 'protein'));
+    }
+    // Expelled waste becomes waste food (heavy obstacle)
+    for (const pos of result.expelledWastePositions) {
+      env.food.push(createFoodParticle(world, pos.x, pos.y, 'waste'));
     }
 
     // Cell-cell adherence/repulsion forces
@@ -445,13 +464,11 @@ export function updateEnvironment(
     cell.touchingCells.clear();
   }
 
-  // --- Food spawning (separate timers per type) ---
-  const baseInterval = SPAWN_INTERVAL_DARK + (SPAWN_INTERVAL_BRIGHT - SPAWN_INTERVAL_DARK) * light;
-  const floatingCount = env.food.filter(f => !f.stationary).length;
+  // --- Food spawning (rates in food/day → interval = DAY_CYCLE_MS / rate) ---
 
   // Carbs
-  if (env.carbSpawnRate > 0 && floatingCount < MAX_FOOD) {
-    const carbInterval = baseInterval / env.carbSpawnRate;
+  if (env.carbSpawnRate > 0) {
+    const carbInterval = DAY_CYCLE_MS / env.carbSpawnRate;
     if (now - env.lastCarbSpawnTime > carbInterval) {
       spawnOneFood(env, world, 'carb');
       env.lastCarbSpawnTime = now;
@@ -459,8 +476,8 @@ export function updateEnvironment(
   }
 
   // Moving protein
-  if (env.movingProteinSpawnRate > 0 && floatingCount < MAX_FOOD) {
-    const proteinInterval = (baseInterval * 4) / env.movingProteinSpawnRate;
+  if (env.movingProteinSpawnRate > 0) {
+    const proteinInterval = DAY_CYCLE_MS / env.movingProteinSpawnRate;
     if (now - env.lastMovingProteinSpawnTime > proteinInterval) {
       spawnOneFood(env, world, 'protein');
       env.lastMovingProteinSpawnTime = now;
@@ -470,7 +487,7 @@ export function updateEnvironment(
   // Stationary protein
   const stationaryCount = env.food.filter(f => f.stationary && !f.absorbed).length;
   if (env.stationaryProteinSpawnRate > 0 && stationaryCount < MAX_STATIONARY_PROTEIN) {
-    const stationaryInterval = STATIONARY_PROTEIN_INTERVAL / env.stationaryProteinSpawnRate;
+    const stationaryInterval = DAY_CYCLE_MS / env.stationaryProteinSpawnRate;
     if (now - env.lastStationaryProteinSpawnTime > stationaryInterval) {
       spawnOneFood(env, world, 'protein', true);
       env.lastStationaryProteinSpawnTime = now;
@@ -482,6 +499,39 @@ export function updateEnvironment(
     nudgeFood(f);
   }
 
+  // --- Extracellular waste physics: attract each other, enforce overlap limit ---
+  const wasteParticles = env.food.filter(f => f.resourceType === 'waste' && !f.absorbed && !f.stuck);
+  const WASTE_ATTRACT_RANGE = 80;
+  const WASTE_ATTRACT_FORCE = 0.000015;
+  const WASTE_MIN_SEP = 10; // roughly 2x particle radius
+  const WASTE_REPEL_FORCE = 0.00005;
+  for (let i = 0; i < wasteParticles.length; i++) {
+    const a = wasteParticles[i].body;
+    for (let j = i + 1; j < wasteParticles.length; j++) {
+      const b = wasteParticles[j].body;
+      const dx = b.position.x - a.position.x;
+      const dy = b.position.y - a.position.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq > WASTE_ATTRACT_RANGE * WASTE_ATTRACT_RANGE) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.1) continue;
+      const nx = dx / dist;
+      const ny = dy / dist;
+
+      if (dist < WASTE_MIN_SEP) {
+        // Hard separation — prevent overlap
+        const push = (WASTE_MIN_SEP - dist) * WASTE_REPEL_FORCE;
+        Matter.Body.applyForce(a, a.position, { x: -nx * push, y: -ny * push });
+        Matter.Body.applyForce(b, b.position, { x: nx * push, y: ny * push });
+      } else {
+        // Attraction
+        const f = WASTE_ATTRACT_FORCE * (1 - dist / WASTE_ATTRACT_RANGE);
+        Matter.Body.applyForce(a, a.position, { x: nx * f, y: ny * f });
+        Matter.Body.applyForce(b, b.position, { x: -nx * f, y: -ny * f });
+      }
+    }
+  }
+
   // --- Endocytosis (per-cell, adherence-gated transport) ---
   for (let i = env.food.length - 1; i >= 0; i--) {
     const f = env.food[i];
@@ -490,6 +540,7 @@ export function updateEnvironment(
       continue;
     }
     if (f.stuck && now - f.stuckTime > ABSORB_DELAY) {
+      if (f.resourceType === 'waste') continue; // waste cannot be endocytosed
       const foodTarget = f.resourceType as SurfaceTarget;
 
       for (const cell of cells) {

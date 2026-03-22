@@ -172,7 +172,7 @@ export function createCell(
   } else {
     energy = createEnergyState();
     addCarbs(energy, 20);
-    addProtein(energy, 20);
+    addProtein(energy, 50);
   }
 
   const cell: Cell = {

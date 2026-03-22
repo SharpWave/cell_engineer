@@ -166,9 +166,10 @@ function drawFoodCell(
   ctx.stroke();
 
   // Resource particles inside (wobbling dots)
-  const isProtein = food.resourceType === 'protein';
-  const dotGlow = isProtein ? PROTEIN_GLOW : CARB_GLOW;
-  const dotColor = isProtein ? PROTEIN_COLOR : CARB_COLOR;
+  const dotGlow = food.resourceType === 'protein' ? PROTEIN_GLOW
+    : food.resourceType === 'waste' ? WASTE_GLOW : CARB_GLOW;
+  const dotColor = food.resourceType === 'protein' ? PROTEIN_COLOR
+    : food.resourceType === 'waste' ? WASTE_COLOR : CARB_COLOR;
   const particleCount = food.resourceValue;
   for (let i = 0; i < particleCount; i++) {
     const phase = now * 0.002 + i * 2.09 + food.body.id;
@@ -438,6 +439,26 @@ function drawModules(ctx: CanvasRenderingContext2D, cell: Cell): void {
 
     ctx.shadowBlur = 0;
     ctx.restore();
+
+    // Draw FOV cone for active eye modules
+    if (mod.subtype === 'eye' && mod.active) {
+      const fovDeg = mod.config.fovDegrees ?? 90;
+      const halfFov = (fovDeg / 2) * (Math.PI / 180);
+      const lookAngle = Math.atan2(dy, dx);
+      const EYE_RANGE = 300;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(mp.x, mp.y);
+      ctx.arc(mp.x, mp.y, EYE_RANGE, lookAngle - halfFov, lookAngle + halfFov);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 

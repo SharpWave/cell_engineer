@@ -2,7 +2,8 @@ import { createPhysicsWorld, stepPhysics, PhysicsWorld } from './Physics';
 import { Camera, createCamera } from './Camera';
 import { render } from './Renderer';
 import { Cell, createCell, getCellCenter } from '../creature/Cell';
-import { Environment, createEnvironment, setupCollisions, updateEnvironment } from '../simulation/Environment';
+import { Environment, createEnvironment, setupCollisions, updateEnvironment, DAY_CYCLE_MS } from '../simulation/Environment';
+import { spendLog, sumEvents } from '../simulation/Energy';
 import { LightCycle, createLightCycle } from '../simulation/LightCycle';
 import { updateHUD, updateInspector } from '../ui/HUD';
 import { SelectionState, createSelectionState, handleClick } from '../ui/Selection';
@@ -171,6 +172,19 @@ export function gameLoop(state: GameState): void {
       // Update cell count
       const cellCountEl = document.getElementById('cell-count');
       if (cellCountEl) cellCountEl.textContent = String(state.cells.length);
+
+      // Update rolling daily stats
+      const rs = state.env.rollingStats;
+      const dcs = document.getElementById('daily-carbs-spawned');
+      const dcc = document.getElementById('daily-carbs-consumed');
+      const dps = document.getElementById('daily-protein-spawned');
+      const dpp = document.getElementById('daily-protein-produced');
+      const dpc = document.getElementById('daily-protein-consumed');
+      if (dcs) dcs.textContent = String(sumEvents(rs.carbsSpawned, now, DAY_CYCLE_MS));
+      if (dcc) dcc.textContent = String(sumEvents(spendLog.carbs, now, DAY_CYCLE_MS));
+      if (dps) dps.textContent = String(sumEvents(rs.proteinSpawned, now, DAY_CYCLE_MS));
+      if (dpp) dpp.textContent = String(sumEvents(rs.proteinProduced, now, DAY_CYCLE_MS));
+      if (dpc) dpc.textContent = String(sumEvents(spendLog.protein, now, DAY_CYCLE_MS));
     }
 
     requestAnimationFrame(tick);
