@@ -105,7 +105,7 @@ export function stickFoodToBody(
   const constraint = Matter.Constraint.create({
     bodyA: food.body,
     bodyB: membraneBody,
-    stiffness: 0.8,
+    stiffness: 0.2,
     damping: 0.3,
     length: 0,
     render: { visible: false },

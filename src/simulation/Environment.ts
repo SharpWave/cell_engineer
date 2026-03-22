@@ -483,46 +483,6 @@ export function updateEnvironment(
     }
   }
 
-  // --- Strict cell-cell membrane non-overlap ---
-  // Membrane particles cannot overlap; apply strong repulsion between
-  // membrane particles of different cells when they get close.
-  const MEMBRANE_PARTICLE_R = 6;
-  const MEMBRANE_MIN_SEP = MEMBRANE_PARTICLE_R * 2; // 2x radius = touching
-  const MEMBRANE_REPEL_FORCE = 0.0008;
-  for (let i = 0; i < cells.length; i++) {
-    for (let j = i + 1; j < cells.length; j++) {
-      const a = cells[i];
-      const b = cells[j];
-
-      // Quick bounding check: skip if centers are far apart
-      const ca = getCellCenter(a);
-      const cb = getCellCenter(b);
-      const cdx = cb.x - ca.x;
-      const cdy = cb.y - ca.y;
-      const rA = a.properties.baseRadius * a.properties.growthScale * 1.3;
-      const rB = b.properties.baseRadius * b.properties.growthScale * 1.3;
-      const maxRange = rA + rB;
-      if (cdx * cdx + cdy * cdy > maxRange * maxRange) continue;
-
-      // Per-particle repulsion between membranes
-      for (const pa of a.membraneParticles) {
-        for (const pb of b.membraneParticles) {
-          const dx = pb.position.x - pa.position.x;
-          const dy = pb.position.y - pa.position.y;
-          const distSq = dx * dx + dy * dy;
-          if (distSq > MEMBRANE_MIN_SEP * MEMBRANE_MIN_SEP || distSq < 0.01) continue;
-          const dist = Math.sqrt(distSq);
-          const overlap = MEMBRANE_MIN_SEP - dist;
-          const nx = dx / dist;
-          const ny = dy / dist;
-          const force = overlap * MEMBRANE_REPEL_FORCE;
-          Matter.Body.applyForce(pa, pa.position, { x: -nx * force, y: -ny * force });
-          Matter.Body.applyForce(pb, pb.position, { x: nx * force, y: ny * force });
-        }
-      }
-    }
-  }
-
   // Add daughter cells
   for (const daughter of newCells) {
     cells.push(daughter);

@@ -69,7 +69,7 @@ export function createCell(
 
     const particle = Matter.Bodies.circle(px, py, particleRadius, {
       label: 'cell_membrane',
-      collisionFilter: { category: COLLISION_CATEGORY, mask: 0xFFFF },
+      collisionFilter: { category: COLLISION_CATEGORY, mask: 0xFFFF, group: -id },
       frictionAir: 0.04,
       restitution: 0.6,
       friction: 0.1,
@@ -145,7 +145,8 @@ export function createCell(
       label: 'membrane_edge',
       collisionFilter: {
         category: EDGE_COLLISION_CATEGORY,
-        mask: FOOD_COLLISION_CATEGORY, // only collide with food
+        mask: FOOD_COLLISION_CATEGORY | COLLISION_CATEGORY, // collide with food + other cells' membranes
+        group: -id, // same-cell parts never collide with each other
       },
       restitution: 0.6,
       friction: 0.1,
