@@ -1,7 +1,7 @@
 import { createPhysicsWorld, stepPhysics, PhysicsWorld } from './Physics';
 import { Camera, createCamera } from './Camera';
 import { render } from './Renderer';
-import { Cell, createCell, getCellCenter } from '../creature/Cell';
+import { Cell, createCell, getCellCenter, updateCellEdgeBodies } from '../creature/Cell';
 import { Environment, createEnvironment, setupCollisions, updateEnvironment, DAY_CYCLE_MS } from '../simulation/Environment';
 import { spendLog, sumEvents } from '../simulation/Energy';
 import { LightCycle, createLightCycle } from '../simulation/LightCycle';
@@ -133,7 +133,8 @@ export function gameLoop(state: GameState): void {
     lastTime = now;
 
     if (!state.paused) {
-      // Update
+      // Update edge bodies to match membrane positions before physics step
+      for (const cell of state.cells) updateCellEdgeBodies(cell);
       stepPhysics(state.physics, delta);
       updateEnvironment(
         state.env, state.physics.world, state.cells,
@@ -180,11 +181,28 @@ export function gameLoop(state: GameState): void {
       const dps = document.getElementById('daily-protein-spawned');
       const dpp = document.getElementById('daily-protein-produced');
       const dpc = document.getElementById('daily-protein-consumed');
+      const carbsConsumed = sumEvents(spendLog.carbs, now, DAY_CYCLE_MS);
+      const proteinConsumed = sumEvents(spendLog.protein, now, DAY_CYCLE_MS);
       if (dcs) dcs.textContent = String(sumEvents(rs.carbsSpawned, now, DAY_CYCLE_MS));
-      if (dcc) dcc.textContent = String(sumEvents(spendLog.carbs, now, DAY_CYCLE_MS));
+      if (dcc) dcc.textContent = String(carbsConsumed);
       if (dps) dps.textContent = String(sumEvents(rs.proteinSpawned, now, DAY_CYCLE_MS));
       if (dpp) dpp.textContent = String(sumEvents(rs.proteinProduced, now, DAY_CYCLE_MS));
-      if (dpc) dpc.textContent = String(sumEvents(spendLog.protein, now, DAY_CYCLE_MS));
+      if (dpc) dpc.textContent = String(proteinConsumed);
+
+      // Autofeeder: set spawn rates to match consumption rates * multiplier
+      const autofeeder = document.getElementById('chk-autofeeder') as HTMLInputElement | null;
+      if (autofeeder?.checked) {
+        const multInput = document.getElementById('input-autofeeder-mult') as HTMLInputElement | null;
+        const mult = Math.max(0, parseFloat(multInput?.value ?? '1') || 1);
+        const carbRate = Math.round(carbsConsumed * mult);
+        const proteinRate = Math.round(proteinConsumed * mult);
+        state.env.carbSpawnRate = carbRate;
+        state.env.movingProteinSpawnRate = proteinRate;
+        const carbInput = document.getElementById('input-carb-rate') as HTMLInputElement | null;
+        const proteinInput = document.getElementById('input-mprotein-rate') as HTMLInputElement | null;
+        if (carbInput) carbInput.value = String(carbRate);
+        if (proteinInput) proteinInput.value = String(proteinRate);
+      }
     }
 
     requestAnimationFrame(tick);

@@ -7,7 +7,7 @@ import {
 import { FoodParticle, createFoodParticle, stickFoodToBody, removeFood, nudgeFood } from './Food';
 import {
   addCarbs, addProtein, addWaste, addResourceAt, updateParticles, spendCarbs, spendProtein,
-  ResourceEvent, spendLog, currentGameTime, setCurrentGameTime, sumEvents, pruneEvents, reconcileEnergy,
+  ResourceEvent, spendLog, currentGameTime, setCurrentGameTime, pruneEvents, reconcileEnergy,
 } from './Energy';
 import { LightCycle, getLightLevel } from './LightCycle';
 import {
@@ -23,8 +23,8 @@ export const DAY_CYCLE_MS = 120_000;
 const MAINTENANCE_RATE = 1 / DAY_CYCLE_MS; // per module per ms
 
 /** Growth: 5 protein per day cycle per growth module → 5% initial circumference */
-const GROWTH_PROTEIN_RATE = 5 / DAY_CYCLE_MS; // protein per ms per growth module
-const GROWTH_PER_PROTEIN = 0.01; // growthScale increase per protein spent (5 protein → 0.05)
+const GROWTH_PROTEIN_RATE = 20 / DAY_CYCLE_MS; // protein per ms per growth module (4x base rate)
+const GROWTH_PER_PROTEIN = 0.01; // growthScale increase per protein spent (20 protein/day → 0.20/day)
 
 export interface Environment {
   food: FoodParticle[];
@@ -94,7 +94,9 @@ export function setupCollisions(
     for (const pair of event.pairs) {
       let foodBody: Matter.Body | null = null;
       let membraneBody: Matter.Body | null = null;
+      let edgeBody: Matter.Body | null = null;
 
+      // Food ↔ cell_membrane (particle node)
       if (pair.bodyA.label === 'food' && pair.bodyB.label === 'cell_membrane') {
         foodBody = pair.bodyA;
         membraneBody = pair.bodyB;
@@ -102,27 +104,83 @@ export function setupCollisions(
         foodBody = pair.bodyB;
         membraneBody = pair.bodyA;
       }
+      // Food ↔ membrane_edge (edge between particles)
+      if (!membraneBody) {
+        if (pair.bodyA.label === 'food' && pair.bodyB.label === 'membrane_edge') {
+          foodBody = pair.bodyA;
+          edgeBody = pair.bodyB;
+        } else if (pair.bodyB.label === 'food' && pair.bodyA.label === 'membrane_edge') {
+          foodBody = pair.bodyB;
+          edgeBody = pair.bodyA;
+        }
+      }
 
       if (foodBody && membraneBody) {
+        // Direct hit on a membrane particle — stick immediately if adherent
         const cellId = (membraneBody as any).cellId as number | undefined;
         if (cellId === undefined) continue;
 
         const effects = env.cellEffects.get(cellId);
         if (!effects) continue;
 
-        // Find the food particle
         const particle = env.food.find(f => f.body === foodBody && !f.stuck && !f.absorbed);
         if (!particle) continue;
 
         const foodTarget = particle.resourceType as SurfaceTarget;
-
-        // Check if cell has external repulsion for this food type
         if (hasRepulsion(effects, 'external', foodTarget)) continue;
-
-        // Check if cell has external adherence for this food type
         if (!hasAdherence(effects, 'external', foodTarget)) continue;
 
+        particle.slidingToward = null; // no longer sliding, arrived at particle
         stickFoodToBody(world, particle, membraneBody, now);
+
+      } else if (foodBody && edgeBody) {
+        // Hit a membrane edge — adherence makes food slide to nearest particle
+        const cellId = (edgeBody as any).cellId as number | undefined;
+        const edgeIndex = (edgeBody as any).edgeIndex as number | undefined;
+        if (cellId === undefined || edgeIndex === undefined) continue;
+
+        const effects = env.cellEffects.get(cellId);
+        if (!effects) continue;
+
+        const particle = env.food.find(f => f.body === foodBody && !f.stuck && !f.absorbed);
+        if (!particle) continue;
+        if (particle.slidingToward?.cellId === cellId) continue; // already sliding on this cell
+
+        const foodTarget = particle.resourceType as SurfaceTarget;
+
+        // Repulsion: let it bounce (default static body collision)
+        if (hasRepulsion(effects, 'external', foodTarget)) continue;
+
+        // No adherence: let it bounce normally
+        if (!hasAdherence(effects, 'external', foodTarget)) continue;
+
+        // Adherence: find nearest endpoint membrane particle and start sliding
+        const cell = cells.find(c => c.id === cellId);
+        if (!cell) continue;
+
+        const nextIndex = (edgeIndex + 1) % cell.membraneParticles.length;
+        const p1 = cell.membraneParticles[edgeIndex];
+        const p2 = cell.membraneParticles[nextIndex];
+
+        const fp = foodBody.position;
+        const d1 = (fp.x - p1.position.x) ** 2 + (fp.y - p1.position.y) ** 2;
+        const d2 = (fp.x - p2.position.x) ** 2 + (fp.y - p2.position.y) ** 2;
+        const target = d1 <= d2 ? p1 : p2;
+
+        particle.slidingToward = { cellId, targetBody: target };
+
+        // Cancel bounce: set velocity tangential toward target
+        const dx = target.position.x - fp.x;
+        const dy = target.position.y - fp.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 0.1) {
+          const speed = Math.sqrt(foodBody.velocity.x ** 2 + foodBody.velocity.y ** 2);
+          const slideSpeed = Math.max(speed * 0.5, 1.5);
+          Matter.Body.setVelocity(foodBody, {
+            x: (dx / dist) * slideSpeed,
+            y: (dy / dist) * slideSpeed,
+          });
+        }
       }
     }
   });
@@ -231,12 +289,16 @@ export function updateEnvironment(
 
       let seen = false;
 
+      // Origin for detection = membrane point (matches visual FOV cone)
+      const eyeX = mp.position.x;
+      const eyeY = mp.position.y;
+
       // Check food particles
       if (target === 'carb' || target === 'protein') {
         for (const f of env.food) {
           if (f.absorbed || f.resourceType !== target) continue;
-          const dx = f.body.position.x - center.x;
-          const dy = f.body.position.y - center.y;
+          const dx = f.body.position.x - eyeX;
+          const dy = f.body.position.y - eyeY;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist > EYE_RANGE || dist < 1) continue;
           const dot = (dx / dist) * lnx + (dy / dist) * lny;
@@ -249,8 +311,8 @@ export function updateEnvironment(
         for (const other of cells) {
           if (other.id === cell.id) continue;
           const oc = getCellCenter(other);
-          const dx = oc.x - center.x;
-          const dy = oc.y - center.y;
+          const dx = oc.x - eyeX;
+          const dy = oc.y - eyeY;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist > EYE_RANGE || dist < 1) continue;
           const dot = (dx / dist) * lnx + (dy / dist) * lny;
@@ -421,31 +483,41 @@ export function updateEnvironment(
     }
   }
 
-  // --- Default cell-cell center repulsion ---
+  // --- Strict cell-cell membrane non-overlap ---
+  // Membrane particles cannot overlap; apply strong repulsion between
+  // membrane particles of different cells when they get close.
+  const MEMBRANE_PARTICLE_R = 6;
+  const MEMBRANE_MIN_SEP = MEMBRANE_PARTICLE_R * 2; // 2x radius = touching
+  const MEMBRANE_REPEL_FORCE = 0.0008;
   for (let i = 0; i < cells.length; i++) {
     for (let j = i + 1; j < cells.length; j++) {
       const a = cells[i];
       const b = cells[j];
+
+      // Quick bounding check: skip if centers are far apart
       const ca = getCellCenter(a);
       const cb = getCellCenter(b);
-      const dx = cb.x - ca.x;
-      const dy = cb.y - ca.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const cdx = cb.x - ca.x;
+      const cdy = cb.y - ca.y;
+      const rA = a.properties.baseRadius * a.properties.growthScale * 1.3;
+      const rB = b.properties.baseRadius * b.properties.growthScale * 1.3;
+      const maxRange = rA + rB;
+      if (cdx * cdx + cdy * cdy > maxRange * maxRange) continue;
 
-      const rA = a.properties.baseRadius * a.properties.growthScale;
-      const rB = b.properties.baseRadius * b.properties.growthScale;
-      const minDist = (rA + rB) * 0.9;
-
-      if (dist < minDist && dist > 1) {
-        const overlap = minDist - dist;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const force = overlap * 0.00004;
-        for (const p of a.membraneParticles) {
-          Matter.Body.applyForce(p, p.position, { x: -nx * force, y: -ny * force });
-        }
-        for (const p of b.membraneParticles) {
-          Matter.Body.applyForce(p, p.position, { x: nx * force, y: ny * force });
+      // Per-particle repulsion between membranes
+      for (const pa of a.membraneParticles) {
+        for (const pb of b.membraneParticles) {
+          const dx = pb.position.x - pa.position.x;
+          const dy = pb.position.y - pa.position.y;
+          const distSq = dx * dx + dy * dy;
+          if (distSq > MEMBRANE_MIN_SEP * MEMBRANE_MIN_SEP || distSq < 0.01) continue;
+          const dist = Math.sqrt(distSq);
+          const overlap = MEMBRANE_MIN_SEP - dist;
+          const nx = dx / dist;
+          const ny = dy / dist;
+          const force = overlap * MEMBRANE_REPEL_FORCE;
+          Matter.Body.applyForce(pa, pa.position, { x: -nx * force, y: -ny * force });
+          Matter.Body.applyForce(pb, pb.position, { x: nx * force, y: ny * force });
         }
       }
     }
@@ -526,6 +598,41 @@ export function updateEnvironment(
         Matter.Body.applyForce(a, a.position, { x: nx * f, y: ny * f });
         Matter.Body.applyForce(b, b.position, { x: -nx * f, y: -ny * f });
       }
+    }
+  }
+
+  // --- Sliding food: push toward target membrane particle, stick when close ---
+  const SLIDE_FORCE = 0.0004;
+  const SLIDE_STICK_DIST = 14;
+  for (const f of env.food) {
+    if (!f.slidingToward || f.stuck || f.absorbed) continue;
+    const target = f.slidingToward.targetBody;
+    const fp = f.body.position;
+    const dx = target.position.x - fp.x;
+    const dy = target.position.y - fp.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < SLIDE_STICK_DIST) {
+      // Arrived at membrane particle — stick to it
+      f.slidingToward = null;
+      stickFoodToBody(world, f, target, now);
+    } else {
+      // Push toward target
+      const nx = dx / dist;
+      const ny = dy / dist;
+      Matter.Body.applyForce(f.body, fp, {
+        x: nx * SLIDE_FORCE,
+        y: ny * SLIDE_FORCE,
+      });
+      // Damp velocity perpendicular to the slide direction (keep it on the membrane)
+      const vel = f.body.velocity;
+      const tangent = vel.x * nx + vel.y * ny;
+      const perpX = vel.x - tangent * nx;
+      const perpY = vel.y - tangent * ny;
+      Matter.Body.setVelocity(f.body, {
+        x: tangent * nx + perpX * 0.3,
+        y: tangent * ny + perpY * 0.3,
+      });
     }
   }
 

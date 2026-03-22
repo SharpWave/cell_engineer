@@ -15,6 +15,8 @@ export interface FoodParticle {
   absorbed: boolean;
   /** Stationary food doesn't drift — cells must navigate to it */
   stationary: boolean;
+  /** When sliding along a membrane edge toward a particle endpoint */
+  slidingToward: { cellId: number; targetBody: Matter.Body } | null;
 }
 
 const CARB_COLORS = ['#ffd700', '#ffb300', '#ffe066'];
@@ -85,6 +87,7 @@ export function createFoodParticle(
     stuckConstraint: null,
     absorbed: false,
     stationary,
+    slidingToward: null,
   };
 }
 

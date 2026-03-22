@@ -19,7 +19,9 @@ pauseBtn.addEventListener('click', () => {
 });
 
 restartBtn.addEventListener('click', () => {
-  window.location.reload();
+  if (confirm('Restart simulation? All progress will be lost.')) {
+    window.location.reload();
+  }
 });
 
 focusBtn.addEventListener('click', () => {

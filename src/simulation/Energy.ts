@@ -150,7 +150,7 @@ export function addResourceAt(state: EnergyState, type: 'carb' | 'protein', amou
 
 interface Vec2 { x: number; y: number }
 
-function isInsidePolygon(px: number, py: number, poly: Vec2[]): boolean {
+export function isInsidePolygon(px: number, py: number, poly: Vec2[]): boolean {
   let inside = false;
   const n = poly.length;
   for (let i = 0, j = n - 1; i < n; j = i++) {

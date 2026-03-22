@@ -5,11 +5,16 @@ import { EnergyState, InternalParticle, createEnergyState, addCarbs, addProtein,
 
 const MEMBRANE_POINTS = 16;
 const COLLISION_CATEGORY = 0x0002;
+/** Edge bodies between membrane particles — only collide with food */
+const EDGE_COLLISION_CATEGORY = 0x0008;
+const FOOD_COLLISION_CATEGORY = 0x0004;
+const EDGE_THICKNESS = 6;
 
 export interface Cell {
   id: number;
   properties: CellProperties;
   membraneParticles: Matter.Body[];
+  edgeBodies: Matter.Body[];
   constraints: Matter.Constraint[];
   center: Matter.Body;
   modules: CellModule[];
@@ -121,7 +126,36 @@ export function createCell(
     );
   }
 
-  Matter.Composite.add(world, [...membraneParticles, center, ...constraints]);
+  // Create edge bodies between adjacent membrane particles (continuous barrier for food)
+  const edgeBodies: Matter.Body[] = [];
+  for (let i = 0; i < MEMBRANE_POINTS; i++) {
+    const next = (i + 1) % MEMBRANE_POINTS;
+    const p1 = membraneParticles[i];
+    const p2 = membraneParticles[next];
+    const mx = (p1.position.x + p2.position.x) / 2;
+    const my = (p1.position.y + p2.position.y) / 2;
+    const dx = p2.position.x - p1.position.x;
+    const dy = p2.position.y - p1.position.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const angle = Math.atan2(dy, dx);
+
+    const edge = Matter.Bodies.rectangle(mx, my, Math.max(len, 1), EDGE_THICKNESS, {
+      isStatic: true,
+      angle,
+      label: 'membrane_edge',
+      collisionFilter: {
+        category: EDGE_COLLISION_CATEGORY,
+        mask: FOOD_COLLISION_CATEGORY, // only collide with food
+      },
+      restitution: 0.6,
+      friction: 0.1,
+    });
+    (edge as any).cellId = id;
+    (edge as any).edgeIndex = i;
+    edgeBodies.push(edge);
+  }
+
+  Matter.Composite.add(world, [...membraneParticles, ...edgeBodies, center, ...constraints]);
 
   let modules: CellModule[];
   let cascades: SignalCascade[];
@@ -179,6 +213,7 @@ export function createCell(
     id,
     properties,
     membraneParticles,
+    edgeBodies,
     constraints,
     center,
     modules,
@@ -359,6 +394,40 @@ export function applyCellStiffness(cell: Cell, rigidity: boolean, flexibility: b
   }
 }
 
+/** Reposition edge bodies to span between current membrane particle positions.
+ *  Call once per frame before the physics step. */
+export function updateCellEdgeBodies(cell: Cell): void {
+  for (let i = 0; i < cell.edgeBodies.length; i++) {
+    const next = (i + 1) % cell.membraneParticles.length;
+    const p1 = cell.membraneParticles[i];
+    const p2 = cell.membraneParticles[next];
+    const dx = p2.position.x - p1.position.x;
+    const dy = p2.position.y - p1.position.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const angle = Math.atan2(dy, dx);
+    const mx = (p1.position.x + p2.position.x) / 2;
+    const my = (p1.position.y + p2.position.y) / 2;
+
+    const edge = cell.edgeBodies[i];
+
+    // Recompute vertices for a rectangle of the correct length
+    const hl = Math.max(len, 1) / 2;
+    const ht = EDGE_THICKNESS / 2;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const vertices = [
+      { x: mx - cos * hl - sin * ht, y: my - sin * hl + cos * ht },
+      { x: mx + cos * hl - sin * ht, y: my + sin * hl + cos * ht },
+      { x: mx + cos * hl + sin * ht, y: my + sin * hl - cos * ht },
+      { x: mx - cos * hl + sin * ht, y: my - sin * hl - cos * ht },
+    ];
+
+    Matter.Body.setPosition(edge, { x: mx, y: my });
+    Matter.Body.setAngle(edge, angle);
+    Matter.Body.setVertices(edge, vertices);
+  }
+}
+
 /** Remove all physics bodies for a cell from the world */
 export function removeCell(cell: Cell, world: Matter.World): void {
   for (const c of cell.constraints) {
@@ -366,6 +435,9 @@ export function removeCell(cell: Cell, world: Matter.World): void {
   }
   for (const p of cell.membraneParticles) {
     Matter.Composite.remove(world, p);
+  }
+  for (const e of cell.edgeBodies) {
+    Matter.Composite.remove(world, e);
   }
   Matter.Composite.remove(world, cell.center);
 }
