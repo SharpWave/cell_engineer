@@ -4,25 +4,35 @@ export interface InternalParticle {
   y: number;
   vx: number;
   vy: number;
-  type: 'energy' | 'waste';
+  type: 'carb' | 'protein' | 'waste';
 }
 
 export interface EnergyState {
-  current: number;
+  carbs: number;
+  protein: number;
   waste: number;
-  wasteAccumulator: number;
+  /** Accumulates fractional maintenance ticks */
+  maintenanceAccumulator: number;
   particles: InternalParticle[];
 }
 
 export function createEnergyState(): EnergyState {
-  return { current: 0, waste: 0, wasteAccumulator: 0, particles: [] };
+  return { carbs: 0, protein: 0, waste: 0, maintenanceAccumulator: 0, particles: [] };
 }
 
-export function addEnergy(state: EnergyState, amount: number): void {
+export function addCarbs(state: EnergyState, amount: number): void {
   const count = Math.floor(amount);
-  state.current += count;
+  state.carbs += count;
   for (let i = 0; i < count; i++) {
-    state.particles.push(makeParticle('energy'));
+    state.particles.push(makeParticle('carb'));
+  }
+}
+
+export function addProtein(state: EnergyState, amount: number): void {
+  const count = Math.floor(amount);
+  state.protein += count;
+  for (let i = 0; i < count; i++) {
+    state.particles.push(makeParticle('protein'));
   }
 }
 
@@ -34,21 +44,31 @@ export function addWaste(state: EnergyState, amount: number): void {
   }
 }
 
-export function spendEnergy(state: EnergyState, amount: number): boolean {
-  if (state.current < amount) return false;
-  state.current -= amount;
-  // Remove energy particles
+export function spendCarbs(state: EnergyState, amount: number): boolean {
+  if (state.carbs < amount) return false;
+  state.carbs -= amount;
+  removeParticles(state, 'carb', amount);
+  return true;
+}
+
+export function spendProtein(state: EnergyState, amount: number): boolean {
+  if (state.protein < amount) return false;
+  state.protein -= amount;
+  removeParticles(state, 'protein', amount);
+  return true;
+}
+
+function removeParticles(state: EnergyState, type: InternalParticle['type'], count: number): void {
   let removed = 0;
-  for (let i = state.particles.length - 1; i >= 0 && removed < amount; i--) {
-    if (state.particles[i].type === 'energy') {
+  for (let i = state.particles.length - 1; i >= 0 && removed < count; i--) {
+    if (state.particles[i].type === type) {
       state.particles.splice(i, 1);
       removed++;
     }
   }
-  return true;
 }
 
-function makeParticle(type: 'energy' | 'waste'): InternalParticle {
+function makeParticle(type: InternalParticle['type']): InternalParticle {
   const angle = Math.random() * Math.PI * 2;
   const dist = Math.random() * 10;
   return {
@@ -60,15 +80,6 @@ function makeParticle(type: 'energy' | 'waste'): InternalParticle {
   };
 }
 
-const WASTE_RATE = 1 / 5000; // 1 waste per 5 seconds
-
-export function updateWaste(state: EnergyState, delta: number): void {
-  state.wasteAccumulator += delta * WASTE_RATE;
-  while (state.wasteAccumulator >= 1) {
-    state.wasteAccumulator -= 1;
-    addWaste(state, 1);
-  }
-}
 
 // ---- Polygon collision helpers ----
 
@@ -88,7 +99,6 @@ function isInsidePolygon(px: number, py: number, poly: Vec2[]): boolean {
 }
 
 function bounceOffMembrane(p: InternalParticle, poly: Vec2[]): void {
-  // Find nearest edge
   let minDist = Infinity;
   let bestInNx = 0, bestInNy = 0;
   let bestProjX = 0, bestProjY = 0;
@@ -102,7 +112,6 @@ function bounceOffMembrane(p: InternalParticle, poly: Vec2[]): void {
     if (lenSq === 0) continue;
     const len = Math.sqrt(lenSq);
 
-    // Project particle onto edge
     const t = Math.max(0, Math.min(1,
       ((p.x - poly[i].x) * edgeDx + (p.y - poly[i].y) * edgeDy) / lenSq
     ));
@@ -117,12 +126,10 @@ function bounceOffMembrane(p: InternalParticle, poly: Vec2[]): void {
       bestProjX = projX;
       bestProjY = projY;
 
-      // Compute inward normal (toward center 0,0)
       let nx = -edgeDy / len;
       let ny = edgeDx / len;
       const midX = (poly[i].x + poly[j].x) / 2;
       const midY = (poly[i].y + poly[j].y) / 2;
-      // If normal doesn't point toward center, flip
       if (nx * (-midX) + ny * (-midY) < 0) {
         nx = -nx;
         ny = -ny;
@@ -132,25 +139,32 @@ function bounceOffMembrane(p: InternalParticle, poly: Vec2[]): void {
     }
   }
 
-  // Reflect velocity off the outward normal
   const outNx = -bestInNx;
   const outNy = -bestInNy;
   const dotVN = p.vx * outNx + p.vy * outNy;
   p.vx -= 2 * dotVN * outNx;
   p.vy -= 2 * dotVN * outNy;
 
-  // Energy loss on bounce
   p.vx *= 0.6;
   p.vy *= 0.6;
 
-  // Push back inside
   p.x = bestProjX + bestInNx * 3;
   p.y = bestProjY + bestInNy * 3;
 }
 
+export interface ParticleExpulsionResult {
+  expelledWaste: number;
+  expelledCarbs: number;
+  expelledProtein: number;
+  /** World-space positions of expelled carb particles (for spawning food) */
+  expelledCarbPositions: Vec2[];
+  /** World-space positions of expelled protein particles (for spawning food) */
+  expelledProteinPositions: Vec2[];
+}
+
 /**
  * Update internal particles with polygon-based membrane collision.
- * Returns number of waste particles expelled (when waste is permeable).
+ * Returns counts of expelled particles.
  */
 export function updateParticles(
   state: EnergyState,
@@ -158,23 +172,34 @@ export function updateParticles(
   cellCenter: Vec2,
   wastePermeable: boolean,
   wastePush: boolean,
+  carbPush: boolean,
+  carbPermeable: boolean,
+  proteinPush: boolean,
+  proteinPermeable: boolean,
   delta: number,
-): number {
+): ParticleExpulsionResult {
   const dt = delta / 16;
 
-  // Convert membrane points to cell-relative coords
   const poly = membranePointsWorld.map(p => ({
     x: p.x - cellCenter.x,
     y: p.y - cellCenter.y,
   }));
 
-  let expelled = 0;
+  let expelledWaste = 0;
+  let expelledCarbs = 0;
+  let expelledProtein = 0;
+  const expelledCarbPositions: Vec2[] = [];
+  const expelledProteinPositions: Vec2[] = [];
 
   for (let i = state.particles.length - 1; i >= 0; i--) {
     const p = state.particles[i];
 
-    // Waste push: outward force when exocytosis active
-    if (wastePush && p.type === 'waste') {
+    // Outward push forces
+    const shouldPush =
+      (wastePush && p.type === 'waste') ||
+      (carbPush && p.type === 'carb') ||
+      (proteinPush && p.type === 'protein');
+    if (shouldPush) {
       const dist = Math.sqrt(p.x * p.x + p.y * p.y);
       if (dist > 1) {
         p.vx += (p.x / dist) * 0.06 * dt;
@@ -196,14 +221,27 @@ export function updateParticles(
     // Membrane collision
     if (!isInsidePolygon(p.x, p.y, poly)) {
       if (p.type === 'waste' && wastePermeable) {
-        // Waste escapes the cell
         state.particles.splice(i, 1);
-        expelled++;
+        expelledWaste++;
+      } else if (p.type === 'carb' && carbPermeable) {
+        expelledCarbPositions.push({
+          x: cellCenter.x + p.x,
+          y: cellCenter.y + p.y,
+        });
+        state.particles.splice(i, 1);
+        expelledCarbs++;
+      } else if (p.type === 'protein' && proteinPermeable) {
+        expelledProteinPositions.push({
+          x: cellCenter.x + p.x,
+          y: cellCenter.y + p.y,
+        });
+        state.particles.splice(i, 1);
+        expelledProtein++;
       } else {
         bounceOffMembrane(p, poly);
       }
     }
   }
 
-  return expelled;
+  return { expelledWaste, expelledCarbs, expelledProtein, expelledCarbPositions, expelledProteinPositions };
 }

@@ -1,53 +1,70 @@
 import Matter from 'matter-js';
 
 export type FoodShape = 'circle' | 'triangle';
+export type FoodResourceType = 'carb' | 'protein';
 
 export interface FoodParticle {
   body: Matter.Body;
   shape: FoodShape;
   color: string;
-  energyValue: number;
+  resourceType: FoodResourceType;
+  resourceValue: number;
   stuck: boolean;
-  stuckTime: number;         // timestamp when it stuck
+  stuckTime: number;
   stuckConstraint: Matter.Constraint | null;
   absorbed: boolean;
+  /** Stationary food doesn't drift — cells must navigate to it */
+  stationary: boolean;
 }
 
-const FOOD_COLORS = ['#00e5ff', '#ff4081', '#76ff03', '#ffea00'];
+const CARB_COLORS = ['#ffd700', '#ffb300', '#ffe066'];
+const PROTEIN_COLORS = ['#4a8aff', '#00b0ff', '#7c4dff'];
 const FOOD_COLLISION_CATEGORY = 0x0004;
 
 export function createFoodParticle(
   world: Matter.World,
   x: number,
   y: number,
+  resourceType: FoodResourceType = 'carb',
+  stationary: boolean = false,
 ): FoodParticle {
   const shape: FoodShape = Math.random() > 0.5 ? 'circle' : 'triangle';
   const radius = 5 + Math.random() * 5;
-  const color = FOOD_COLORS[Math.floor(Math.random() * FOOD_COLORS.length)];
+  const colors = resourceType === 'carb' ? CARB_COLORS : PROTEIN_COLORS;
+  const color = colors[Math.floor(Math.random() * colors.length)];
+
+  const frictionAir = stationary ? 0.8 : 0.002;
+  const mass = stationary ? 50 : undefined;
 
   let body: Matter.Body;
   if (shape === 'circle') {
     body = Matter.Bodies.circle(x, y, radius, {
       label: 'food',
-      frictionAir: 0.002,
+      frictionAir,
       restitution: 0.8,
       collisionFilter: { category: FOOD_COLLISION_CATEGORY, mask: 0xFFFF },
     });
   } else {
     body = Matter.Bodies.polygon(x, y, 3, radius, {
       label: 'food',
-      frictionAir: 0.002,
+      frictionAir,
       restitution: 0.6,
       collisionFilter: { category: FOOD_COLLISION_CATEGORY, mask: 0xFFFF },
       chamfer: { radius: 2 },
     });
   }
 
-  // Give it a noticeable random drift
-  Matter.Body.setVelocity(body, {
-    x: (Math.random() - 0.5) * 4,
-    y: (Math.random() - 0.5) * 4,
-  });
+  if (mass !== undefined) {
+    Matter.Body.setMass(body, mass);
+  }
+
+  // Floating food drifts; stationary food stays put
+  if (!stationary) {
+    Matter.Body.setVelocity(body, {
+      x: (Math.random() - 0.5) * 4,
+      y: (Math.random() - 0.5) * 4,
+    });
+  }
 
   Matter.Composite.add(world, body);
 
@@ -55,11 +72,13 @@ export function createFoodParticle(
     body,
     shape,
     color,
-    energyValue: 1,
+    resourceType,
+    resourceValue: 1,
     stuck: false,
     stuckTime: 0,
     stuckConstraint: null,
     absorbed: false,
+    stationary,
   };
 }
 
@@ -89,7 +108,7 @@ export function stickFoodToBody(
 
 /** Give free-floating food a small random nudge to keep things lively */
 export function nudgeFood(food: FoodParticle): void {
-  if (food.stuck || food.absorbed) return;
+  if (food.stuck || food.absorbed || food.stationary) return;
   const v = food.body.velocity;
   const speed = Math.sqrt(v.x * v.x + v.y * v.y);
   if (speed < 1.5) {

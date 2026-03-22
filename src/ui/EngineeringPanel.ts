@@ -1,34 +1,58 @@
 import { Cell } from '../creature/Cell';
-import { EnergyState, spendEnergy } from '../simulation/Energy';
+import { spendProtein } from '../simulation/Energy';
 import {
-  MODULE_CATALOG, ModuleSubtype, createModule, createCascade, findNextMembraneIndex,
+  MODULE_CATALOG, ModuleSubtype, ModuleConfig, createModule, createCascade,
+  findNextMembraneIndex, getModuleDisplayLabel,
 } from '../creature/Module';
+import { updateFingerprint } from '../creature/Cell';
 
+/** Subtypes available for purchase */
 const PURCHASABLE: ModuleSubtype[] = [
-  'waste_sensor', 'waste_exocytosis', 'waste_adherence_mod',
+  'membrane_transporter',
+  'internal_sensor',
+  'membrane_sensor',
+  'adherence_module',
+  'light_sensor',
+  'mitosis',
+  'rigidity_mod',
+  'flexibility_mod',
+  'shaker',
+  'growth_mod',
 ];
+
+/** Tracks the pending module being configured before confirmation */
+let pendingBuild: { subtype: ModuleSubtype; config: ModuleConfig } | null = null;
 
 /**
  * Build (or rebuild) the full engineering panel DOM inside the container.
- * Called when the cell is first selected or when modules change.
  */
 export function buildEngineeringPanel(
   container: HTMLElement,
   cell: Cell,
-  energy: EnergyState,
 ): void {
   container.innerHTML = '';
 
-  // -- Current modules --
+  // -- Cell info --
+  const infoSection = document.createElement('div');
+  infoSection.innerHTML = `<div class="prop-title">Cell #${cell.id}</div>`;
+  const fpText = cell.fingerprint.length > 0
+    ? cell.fingerprint.join(', ')
+    : 'none';
+  infoSection.innerHTML += `<div class="stat-row"><span class="stat-label">Fingerprint</span><span class="stat-value" style="font-size:10px;max-width:140px;overflow:hidden;text-overflow:ellipsis">${fpText}</span></div>`;
+  container.appendChild(infoSection);
+
+  // -- Current modules (read-only) --
   const modSection = document.createElement('div');
+  modSection.className = 'prop-section';
   modSection.innerHTML = '<div class="prop-title">Modules</div>';
 
   for (const mod of cell.modules) {
     const info = MODULE_CATALOG[mod.subtype];
+    const label = getModuleDisplayLabel(mod);
     const row = document.createElement('div');
     row.className = 'stat-row';
     row.innerHTML = `
-      <span class="stat-label">${info.label}</span>
+      <span class="stat-label" style="font-size:11px">${label}</span>
       <span class="stat-value" data-mod-id="${mod.id}"
         style="color:${mod.active ? info.activeColor : info.color}">
         ${mod.active ? 'ACTIVE' : 'idle'}
@@ -36,50 +60,124 @@ export function buildEngineeringPanel(
     `;
     modSection.appendChild(row);
 
-    // Threshold config for waste sensor
-    if (mod.subtype === 'waste_sensor') {
-      const sliderRow = document.createElement('div');
-      sliderRow.className = 'stat-row';
-      sliderRow.style.alignItems = 'center';
-      sliderRow.innerHTML = `
-        <span class="stat-label">Threshold</span>
-        <span style="display:flex;align-items:center;gap:6px">
-          <input type="range" min="1" max="30" value="${mod.config.threshold ?? 5}"
-            class="eng-slider" data-threshold-for="${mod.id}">
-          <span class="stat-value" data-threshold-val="${mod.id}">${mod.config.threshold ?? 5}</span>
-        </span>
-      `;
-      modSection.appendChild(sliderRow);
+    // Delete button for non-starter modules (index >= 3)
+    const modIndex = cell.modules.indexOf(mod);
+    if (modIndex >= 3) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'eng-btn';
+      delBtn.style.fontSize = '10px';
+      delBtn.style.color = '#ff6666';
+      delBtn.textContent = 'Remove';
+      delBtn.addEventListener('click', () => {
+        cell.cascades = cell.cascades.filter(c => c.fromId !== mod.id && c.toId !== mod.id);
+        cell.modules.splice(cell.modules.indexOf(mod), 1);
+        updateFingerprint(cell);
+        buildEngineeringPanel(container, cell);
+      });
+      modSection.appendChild(delBtn);
     }
   }
 
   container.appendChild(modSection);
 
-  // -- Add module buttons --
-  const remaining = PURCHASABLE.filter(s => !cell.modules.some(m => m.subtype === s));
-  if (remaining.length > 0) {
-    const addSection = document.createElement('div');
-    addSection.className = 'prop-section';
-    addSection.innerHTML = '<div class="prop-title">Add Module</div>';
+  // -- Add module section --
+  const addSection = document.createElement('div');
+  addSection.className = 'prop-section';
+  addSection.innerHTML = '<div class="prop-title">Add Module</div>';
 
-    for (const subtype of remaining) {
+  if (pendingBuild) {
+    // Show config UI for the pending module
+    const subtype = pendingBuild.subtype;
+    const info = MODULE_CATALOG[subtype];
+    const config = pendingBuild.config;
+
+    const header = document.createElement('div');
+    header.className = 'stat-row';
+    header.innerHTML = `<span class="stat-label" style="color:${info.color};font-weight:bold">${info.label}</span><span class="stat-value">${info.cost}P</span>`;
+    addSection.appendChild(header);
+
+    if (subtype === 'internal_sensor') {
+      addSection.appendChild(buildConfigSelect('Resource', ['carb', 'protein', 'waste'], config.senseResource ?? 'waste', v => { config.senseResource = v as any; }));
+      addSection.appendChild(buildConfigSlider('Threshold', 1, 30, config.threshold ?? 5, v => { config.threshold = v; }));
+      addSection.appendChild(buildConfigSelect('Mode', ['above', 'below'], config.mode ?? 'above', v => { config.mode = v as any; }));
+    }
+    if (subtype === 'membrane_sensor') {
+      addSection.appendChild(buildConfigSelect('Side', ['external', 'internal'], config.membraneSide ?? 'external', v => { config.membraneSide = v as any; }));
+      addSection.appendChild(buildConfigSelect('Target', ['carb', 'protein', 'waste', 'cell'], config.senseTarget ?? 'carb', v => { config.senseTarget = v as any; }));
+      addSection.appendChild(buildConfigSlider('Threshold', 1, 20, config.threshold ?? 1, v => { config.threshold = v; }));
+      addSection.appendChild(buildConfigSelect('Mode', ['above', 'below'], config.mode ?? 'above', v => { config.mode = v as any; }));
+    }
+    if (subtype === 'membrane_transporter') {
+      addSection.appendChild(buildConfigSelect('Resource', ['carb', 'protein', 'waste'], config.resourceType ?? 'carb', v => { config.resourceType = v as any; }));
+      addSection.appendChild(buildConfigSelect('Direction', ['endo', 'exo'], config.direction ?? 'endo', v => { config.direction = v as any; }));
+    }
+    if (subtype === 'adherence_module') {
+      addSection.appendChild(buildConfigSelect('Side', ['external', 'internal'], config.adherenceSide ?? 'external', v => { config.adherenceSide = v as any; }));
+      addSection.appendChild(buildConfigSelect('Target', ['carb', 'protein', 'waste', 'cell'], config.adherenceTarget ?? 'carb', v => { config.adherenceTarget = v as any; }));
+      addSection.appendChild(buildConfigSelect('Mode', ['adherence', 'repulsion'], config.adherenceMode ?? 'adherence', v => { config.adherenceMode = v as any; }));
+    }
+    if (subtype === 'light_sensor') {
+      addSection.appendChild(buildConfigSlider('Light %', 0, 100, config.threshold ?? 50, v => { config.threshold = v; }));
+    }
+    if (subtype === 'growth_mod') {
+      addSection.appendChild(buildConfigSelect('Mode', ['grow', 'reduce'], config.growthMode ?? 'grow', v => { config.growthMode = v as any; }));
+    }
+
+    // Confirm / Cancel buttons
+    const btnRow = document.createElement('div');
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '4px';
+    btnRow.style.marginTop = '4px';
+
+    const okBtn = document.createElement('button');
+    okBtn.className = 'eng-btn';
+    okBtn.style.flex = '1';
+    okBtn.style.textAlign = 'center';
+    okBtn.style.color = '#4aff8a';
+    okBtn.textContent = 'Build';
+    okBtn.disabled = cell.energy.protein < info.cost;
+    okBtn.addEventListener('click', () => {
+      if (spendProtein(cell.energy, info.cost)) {
+        const idx = findNextMembraneIndex(cell.modules);
+        const mod = createModule(subtype, idx, config);
+        cell.modules.push(mod);
+        updateFingerprint(cell);
+      }
+      pendingBuild = null;
+      buildEngineeringPanel(container, cell);
+    });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'eng-btn';
+    cancelBtn.style.flex = '1';
+    cancelBtn.style.textAlign = 'center';
+    cancelBtn.style.color = '#ff6666';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => {
+      pendingBuild = null;
+      buildEngineeringPanel(container, cell);
+    });
+
+    btnRow.appendChild(okBtn);
+    btnRow.appendChild(cancelBtn);
+    addSection.appendChild(btnRow);
+  } else {
+    // Show purchase buttons
+    for (const subtype of PURCHASABLE) {
       const info = MODULE_CATALOG[subtype];
       const btn = document.createElement('button');
       btn.className = 'eng-btn';
-      btn.textContent = `${info.label} (${info.cost})`;
-      btn.disabled = energy.current < info.cost;
+      btn.textContent = `${info.label} (${info.cost}P)`;
+      btn.disabled = cell.energy.protein < info.cost;
       btn.addEventListener('click', () => {
-        if (spendEnergy(energy, info.cost)) {
-          const idx = findNextMembraneIndex(cell.modules);
-          cell.modules.push(createModule(subtype, idx));
-          buildEngineeringPanel(container, cell, energy);
-        }
+        pendingBuild = { subtype, config: getDefaultBuildConfig(subtype) };
+        buildEngineeringPanel(container, cell);
       });
       addSection.appendChild(btn);
     }
-
-    container.appendChild(addSection);
   }
+
+  container.appendChild(addSection);
 
   // -- Signal cascades --
   const casSection = document.createElement('div');
@@ -93,8 +191,8 @@ export function buildEngineeringPanel(
     const row = document.createElement('div');
     row.className = 'stat-row';
     row.innerHTML = `
-      <span class="stat-label">${MODULE_CATALOG[from.subtype].label}</span>
-      <span class="stat-value">&rarr; ${MODULE_CATALOG[to.subtype].label}</span>
+      <span class="stat-label" style="font-size:11px">${getModuleDisplayLabel(from)}</span>
+      <span class="stat-value" style="font-size:11px">&rarr; ${getModuleDisplayLabel(to)}</span>
     `;
     casSection.appendChild(row);
   }
@@ -112,7 +210,7 @@ export function buildEngineeringPanel(
     for (const s of sensors) {
       const opt = document.createElement('option');
       opt.value = s.id;
-      opt.textContent = MODULE_CATALOG[s.subtype].label;
+      opt.textContent = getModuleDisplayLabel(s);
       fromSelect.appendChild(opt);
     }
 
@@ -121,20 +219,20 @@ export function buildEngineeringPanel(
     for (const t of targets) {
       const opt = document.createElement('option');
       opt.value = t.id;
-      opt.textContent = MODULE_CATALOG[t.subtype].label;
+      opt.textContent = getModuleDisplayLabel(t);
       toSelect.appendChild(opt);
     }
 
     const linkBtn = document.createElement('button');
     linkBtn.className = 'eng-btn';
-    linkBtn.textContent = 'Link (1)';
+    linkBtn.textContent = 'Link (1P)';
     linkBtn.addEventListener('click', () => {
       const fromId = fromSelect.value;
       const toId = toSelect.value;
       const exists = cell.cascades.some(c => c.fromId === fromId && c.toId === toId);
-      if (!exists && spendEnergy(energy, 1)) {
+      if (!exists && spendProtein(cell.energy, 1)) {
         cell.cascades.push(createCascade(fromId, toId));
-        buildEngineeringPanel(container, cell, energy);
+        buildEngineeringPanel(container, cell);
       }
     });
 
@@ -152,21 +250,78 @@ export function buildEngineeringPanel(
   }
 
   container.appendChild(casSection);
+}
 
-  // -- Wire up threshold sliders after DOM is built --
-  const sliders = container.querySelectorAll('.eng-slider[data-threshold-for]');
-  sliders.forEach(slider => {
-    const input = slider as HTMLInputElement;
-    const modId = input.dataset.thresholdFor!;
-    const valSpan = container.querySelector(`[data-threshold-val="${modId}"]`);
-    input.addEventListener('input', () => {
-      const mod = cell.modules.find(m => m.id === modId);
-      if (mod) {
-        mod.config.threshold = parseInt(input.value);
-        if (valSpan) valSpan.textContent = input.value;
-      }
-    });
+/** Default config values for the build configurator */
+function getDefaultBuildConfig(subtype: ModuleSubtype): ModuleConfig {
+  switch (subtype) {
+    case 'membrane_transporter':
+      return { resourceType: 'carb', direction: 'endo' };
+    case 'internal_sensor':
+      return { senseResource: 'waste', threshold: 5, mode: 'above' };
+    case 'membrane_sensor':
+      return { membraneSide: 'external', senseTarget: 'carb', threshold: 1, mode: 'above' };
+    case 'adherence_module':
+      return { adherenceSide: 'external', adherenceTarget: 'carb', adherenceMode: 'adherence' };
+    case 'light_sensor':
+      return { threshold: 50 };
+    case 'growth_mod':
+      return { growthMode: 'grow' };
+    default:
+      return {};
+  }
+}
+
+function buildConfigSelect(
+  label: string,
+  options: string[],
+  current: string,
+  onChange: (value: string) => void,
+): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'stat-row';
+  row.style.alignItems = 'center';
+  const optionsHtml = options.map(o =>
+    `<option value="${o}" ${o === current ? 'selected' : ''}>${capitalize(o)}</option>`
+  ).join('');
+  row.innerHTML = `
+    <span class="stat-label">${label}</span>
+    <select class="eng-select">${optionsHtml}</select>
+  `;
+  const select = row.querySelector('select')!;
+  select.addEventListener('change', () => onChange(select.value));
+  return row;
+}
+
+function buildConfigSlider(
+  label: string,
+  min: number,
+  max: number,
+  value: number,
+  onChange: (value: number) => void,
+): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'stat-row';
+  row.style.alignItems = 'center';
+  row.innerHTML = `
+    <span class="stat-label">${label}</span>
+    <span style="display:flex;align-items:center;gap:6px">
+      <input type="range" min="${min}" max="${max}" value="${value}" class="eng-slider">
+      <span class="stat-value">${value}</span>
+    </span>
+  `;
+  const input = row.querySelector('input')!;
+  const valSpan = row.querySelector('.stat-value')!;
+  input.addEventListener('input', () => {
+    const v = parseInt(input.value);
+    valSpan.textContent = String(v);
+    onChange(v);
   });
+  return row;
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 /** Lightweight update: just refresh module active states without rebuilding */

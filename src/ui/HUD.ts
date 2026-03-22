@@ -4,11 +4,13 @@ import { SelectionState } from './Selection';
 import { buildEngineeringPanel, updateModuleStatuses } from './EngineeringPanel';
 
 export function updateHUD(energy: EnergyState, cell: Cell): void {
-  const energyEl = document.getElementById('energy-display');
+  const carbsEl = document.getElementById('carbs-display');
+  const proteinEl = document.getElementById('protein-display');
   const wasteEl = document.getElementById('waste-display');
   const growthEl = document.getElementById('growth-display');
 
-  if (energyEl) energyEl.textContent = String(energy.current);
+  if (carbsEl) carbsEl.textContent = String(energy.carbs);
+  if (proteinEl) proteinEl.textContent = String(energy.protein);
   if (wasteEl) wasteEl.textContent = String(energy.waste);
   if (growthEl) growthEl.textContent = cell.properties.growthScale.toFixed(2) + 'x';
 }
@@ -16,7 +18,7 @@ export function updateHUD(energy: EnergyState, cell: Cell): void {
 // Track what the panel was last built for so we don't rebuild every frame
 let panelBuiltFor: object | null = null;
 
-export function updateInspector(selection: SelectionState, energy?: EnergyState): void {
+export function updateInspector(selection: SelectionState): void {
   const el = document.getElementById('inspector-content');
   if (!el) return;
 
@@ -34,7 +36,7 @@ export function updateInspector(selection: SelectionState, energy?: EnergyState)
     if (panelBuiltFor !== cell) {
       // First time selecting this cell — build the full engineering panel
       panelBuiltFor = cell;
-      buildEngineeringPanel(el, cell, energy!);
+      buildEngineeringPanel(el, cell);
     } else {
       // Just update dynamic statuses
       updateModuleStatuses(el, cell);
@@ -49,14 +51,20 @@ export function updateInspector(selection: SelectionState, energy?: EnergyState)
       if (food.absorbed) {
         el.innerHTML = '<span class="inspector-empty">This food has been absorbed.</span>';
       } else {
-        const status = food.stuck ? 'Stuck (absorbing...)' : 'Drifting';
+        const status = food.stuck ? 'Stuck (absorbing...)' : (food.stationary ? 'Stationary' : 'Drifting');
+        const resColor = food.resourceType === 'carb' ? '#ffd700' : '#4a8aff';
         el.innerHTML = `
           <div class="prop-title">Food Particle</div>
-          <div class="stat-row"><span class="stat-label">Energy</span><span class="stat-value energy">${food.energyValue}</span></div>
-          <div class="stat-row"><span class="stat-label">Shape</span><span class="stat-value">${food.shape}</span></div>
+          <div class="stat-row"><span class="stat-label">Type</span><span class="stat-value" style="color:${resColor}">${food.resourceType === 'carb' ? 'Carb' : 'Protein'}</span></div>
+          <div class="stat-row"><span class="stat-label">Value</span><span class="stat-value">${food.resourceValue}</span></div>
           <div class="stat-row"><span class="stat-label">Status</span><span class="stat-value">${status}</span></div>
         `;
       }
     }
   }
+}
+
+/** Force rebuild of inspector panel (e.g. after module purchase) */
+export function forceInspectorRebuild(): void {
+  panelBuiltFor = null;
 }

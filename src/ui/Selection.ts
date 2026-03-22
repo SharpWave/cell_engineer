@@ -32,7 +32,6 @@ function screenToWorld(
 function isInsideCell(wx: number, wy: number, cell: Cell): boolean {
   const center = getCellCenter(cell);
   const points = getMembranePoints(cell);
-  // Use max distance from center to any membrane point as radius
   let maxR = 0;
   for (const p of points) {
     const dx = p.x - center.x;
@@ -57,7 +56,7 @@ export function handleClick(
   screenY: number,
   camera: Camera,
   canvas: HTMLCanvasElement,
-  cell: Cell,
+  cells: Cell[],
   env: Environment,
   selection: SelectionState,
 ): void {
@@ -71,10 +70,12 @@ export function handleClick(
     }
   }
 
-  // Check cell
-  if (isInsideCell(wx, wy, cell)) {
-    selection.current = { type: 'cell', cell };
-    return;
+  // Check all cells
+  for (const cell of cells) {
+    if (isInsideCell(wx, wy, cell)) {
+      selection.current = { type: 'cell', cell };
+      return;
+    }
   }
 
   // Clicked nothing

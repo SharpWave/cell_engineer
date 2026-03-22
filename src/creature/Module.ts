@@ -1,16 +1,59 @@
+// --- Parameterization types ---
+
+export type ResourceType = 'carb' | 'protein' | 'waste';
+export type TransportDirection = 'endo' | 'exo';
+export type MembraneSide = 'internal' | 'external';
+export type SurfaceTarget = 'carb' | 'protein' | 'waste' | 'cell';
+export type AdherenceMode = 'adherence' | 'repulsion';
+export type GrowthMode = 'grow' | 'reduce';
+
+// --- Module subtypes ---
+
 export type ModuleSubtype =
-  | 'adhesion_sensor'
-  | 'endocytosis'
-  | 'waste_sensor'
-  | 'waste_exocytosis'
-  | 'waste_adherence_mod';
+  | 'membrane_transporter'
+  | 'internal_sensor'
+  | 'membrane_sensor'
+  | 'adherence_module'
+  | 'light_sensor'
+  | 'mitosis'
+  | 'rigidity_mod'
+  | 'flexibility_mod'
+  | 'shaker'
+  | 'growth_mod';
+
+// --- Config ---
+
+export interface ModuleConfig {
+  // Shared sensor fields
+  threshold?: number;
+  mode?: 'above' | 'below';
+
+  // membrane_transporter
+  resourceType?: ResourceType;
+  direction?: TransportDirection;
+
+  // internal_sensor
+  senseResource?: ResourceType;
+
+  // membrane_sensor
+  membraneSide?: MembraneSide;
+  senseTarget?: SurfaceTarget;
+
+  // adherence_module
+  adherenceSide?: MembraneSide;
+  adherenceTarget?: SurfaceTarget;
+  adherenceMode?: AdherenceMode;
+
+  // growth_mod
+  growthMode?: GrowthMode;
+}
 
 export interface CellModule {
   id: string;
   subtype: ModuleSubtype;
   membraneIndex: number;
   active: boolean;
-  config: { threshold?: number };
+  config: ModuleConfig;
 }
 
 export interface SignalCascade {
@@ -19,12 +62,55 @@ export interface SignalCascade {
   toId: string;
 }
 
-/** What the module system produces each frame for the simulation to act on */
-export interface ModuleEffects {
-  endocytosisActive: boolean;
-  wastePermeable: boolean;
-  wastePushActive: boolean;
+// --- Context & Effects ---
+
+export interface ModuleContext {
+  carbCount: number;
+  proteinCount: number;
+  wasteCount: number;
+  externalAdhered: Record<SurfaceTarget, number>;
+  internalAdhered: Record<SurfaceTarget, number>;
+  lightLevel: number;
+  maxCellSimilarity: number;
 }
+
+export interface TransportChannel {
+  resourceType: ResourceType;
+  direction: TransportDirection;
+}
+
+export interface AdherenceRule {
+  side: MembraneSide;
+  target: SurfaceTarget;
+  mode: AdherenceMode;
+}
+
+export interface ModuleEffects {
+  activeTransports: TransportChannel[];
+  activeAdherence: AdherenceRule[];
+  mitosisTriggered: boolean;
+  rigidityActive: boolean;
+  flexibilityActive: boolean;
+  shakerActive: boolean;
+  /** Net growth rate: positive = grow, negative = reduce. Each module contributes +1 or -1. */
+  netGrowthRate: number;
+}
+
+// --- Effect query helpers ---
+
+export function hasTransport(effects: ModuleEffects, resource: ResourceType, dir: TransportDirection): boolean {
+  return effects.activeTransports.some(t => t.resourceType === resource && t.direction === dir);
+}
+
+export function hasAdherence(effects: ModuleEffects, side: MembraneSide, target: SurfaceTarget): boolean {
+  return effects.activeAdherence.some(a => a.side === side && a.target === target && a.mode === 'adherence');
+}
+
+export function hasRepulsion(effects: ModuleEffects, side: MembraneSide, target: SurfaceTarget): boolean {
+  return effects.activeAdherence.some(a => a.side === side && a.target === target && a.mode === 'repulsion');
+}
+
+// --- Catalog ---
 
 export const MODULE_CATALOG: Record<ModuleSubtype, {
   label: string;
@@ -33,22 +119,99 @@ export const MODULE_CATALOG: Record<ModuleSubtype, {
   activeColor: string;
   category: 'sensor' | 'effector' | 'modulator';
 }> = {
-  adhesion_sensor:    { label: 'Adhesion Sensor',  cost: 0, color: '#2a7a5a', activeColor: '#4aff8a', category: 'sensor' },
-  endocytosis:        { label: 'Endocytosis',      cost: 0, color: '#2a5a7a', activeColor: '#4a8aff', category: 'effector' },
-  waste_sensor:       { label: 'Waste Sensor',     cost: 5, color: '#7a6a2a', activeColor: '#ffcc4a', category: 'sensor' },
-  waste_exocytosis:   { label: 'Waste Exocytosis', cost: 5, color: '#5a2a7a', activeColor: '#aa4aff', category: 'effector' },
-  waste_adherence_mod:{ label: 'Waste Adherence',  cost: 5, color: '#7a2a4a', activeColor: '#ff4a8a', category: 'modulator' },
+  membrane_transporter: { label: 'Membrane Transporter', cost: 5,  color: '#2a5a7a', activeColor: '#4a8aff', category: 'effector' },
+  internal_sensor:      { label: 'Internal Sensor',      cost: 5,  color: '#7a6a2a', activeColor: '#ffcc4a', category: 'sensor' },
+  membrane_sensor:      { label: 'Membrane Sensor',      cost: 5,  color: '#2a7a5a', activeColor: '#4aff8a', category: 'sensor' },
+  adherence_module:     { label: 'Adherence Module',     cost: 5,  color: '#7a2a4a', activeColor: '#ff4a8a', category: 'modulator' },
+  light_sensor:         { label: 'Light Sensor',         cost: 3,  color: '#6a6a5a', activeColor: '#eeee88', category: 'sensor' },
+  mitosis:              { label: 'Mitosis',              cost: 10, color: '#2a6a7a', activeColor: '#4aeeff', category: 'effector' },
+  rigidity_mod:         { label: 'Rigidity',             cost: 3,  color: '#6a6a6a', activeColor: '#cccccc', category: 'modulator' },
+  flexibility_mod:      { label: 'Flexibility',          cost: 3,  color: '#4a5a6a', activeColor: '#88aacc', category: 'modulator' },
+  shaker:               { label: 'Shaker',               cost: 5,  color: '#7a5a2a', activeColor: '#ffaa44', category: 'effector' },
+  growth_mod:           { label: 'Growth/Reduction',     cost: 5,  color: '#2a7a3a', activeColor: '#44ff66', category: 'effector' },
 };
+
+// --- Display label from config ---
+
+export function getModuleDisplayLabel(mod: CellModule): string {
+  switch (mod.subtype) {
+    case 'membrane_transporter': {
+      const res = mod.config.resourceType ?? 'carb';
+      const dir = mod.config.direction === 'exo' ? 'Exo' : 'Endo';
+      return `${capitalize(res)} ${dir}cytosis`;
+    }
+    case 'internal_sensor':
+      return `${capitalize(mod.config.senseResource ?? 'waste')} Sensor (int)`;
+    case 'membrane_sensor': {
+      const side = mod.config.membraneSide === 'internal' ? 'int' : 'ext';
+      return `${capitalize(mod.config.senseTarget ?? 'carb')} Sensor (${side})`;
+    }
+    case 'adherence_module': {
+      const side = mod.config.adherenceSide === 'internal' ? 'int' : 'ext';
+      const mode = mod.config.adherenceMode === 'repulsion' ? 'Repel' : 'Adhere';
+      return `${capitalize(mod.config.adherenceTarget ?? 'carb')} ${mode} (${side})`;
+    }
+    case 'growth_mod':
+      return mod.config.growthMode === 'reduce' ? 'Reduction' : 'Growth';
+    default:
+      return MODULE_CATALOG[mod.subtype].label;
+  }
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// --- Module fingerprint key (for cell identity) ---
+
+export function getModuleFingerprintKey(mod: CellModule): string {
+  switch (mod.subtype) {
+    case 'membrane_transporter':
+      return `transport:${mod.config.resourceType}:${mod.config.direction}`;
+    case 'adherence_module':
+      return `adhere:${mod.config.adherenceSide}:${mod.config.adherenceTarget}:${mod.config.adherenceMode}`;
+    case 'internal_sensor':
+      return `isens:${mod.config.senseResource}`;
+    case 'membrane_sensor':
+      return `msens:${mod.config.membraneSide}:${mod.config.senseTarget}`;
+    case 'growth_mod':
+      return `growth:${mod.config.growthMode}`;
+    default:
+      return mod.subtype;
+  }
+}
+
+// --- Factory ---
 
 let nextId = 1;
 
-export function createModule(subtype: ModuleSubtype, membraneIndex: number): CellModule {
+function getDefaultConfig(subtype: ModuleSubtype): ModuleConfig {
+  switch (subtype) {
+    case 'membrane_transporter':
+      return { resourceType: 'carb', direction: 'endo' };
+    case 'internal_sensor':
+      return { senseResource: 'waste', threshold: 5, mode: 'above' };
+    case 'membrane_sensor':
+      return { membraneSide: 'external', senseTarget: 'carb', threshold: 1, mode: 'above' };
+    case 'adherence_module':
+      return { adherenceSide: 'external', adherenceTarget: 'carb', adherenceMode: 'adherence' };
+    case 'light_sensor':
+      return { threshold: 50 };
+    case 'growth_mod':
+      return { growthMode: 'grow' as GrowthMode };
+    default:
+      return {};
+  }
+}
+
+export function createModule(subtype: ModuleSubtype, membraneIndex: number, config?: Partial<ModuleConfig>): CellModule {
+  const defaults = getDefaultConfig(subtype);
   return {
     id: `mod_${nextId++}`,
     subtype,
     membraneIndex,
     active: false,
-    config: subtype === 'waste_sensor' ? { threshold: 5 } : {},
+    config: { ...defaults, ...config },
   };
 }
 
@@ -56,45 +219,106 @@ export function createCascade(fromId: string, toId: string): SignalCascade {
   return { id: `cas_${nextId++}`, fromId, toId };
 }
 
+// --- Update logic ---
+
 export function updateModules(
   modules: CellModule[],
   cascades: SignalCascade[],
-  hasStuckFood: boolean,
-  wasteCount: number,
+  ctx: ModuleContext,
 ): ModuleEffects {
-  // Reset all
+  // Reset
   for (const m of modules) m.active = false;
 
-  // Sensors read conditions
+  // Always-on modules (passive membrane properties)
   for (const m of modules) {
-    if (m.subtype === 'adhesion_sensor') {
-      m.active = hasStuckFood;
-    } else if (m.subtype === 'waste_sensor') {
-      m.active = wasteCount > (m.config.threshold ?? 5);
+    if (m.subtype === 'adherence_module' || m.subtype === 'growth_mod') m.active = true;
+  }
+
+  // Evaluate sensors
+  for (const m of modules) {
+    switch (m.subtype) {
+      case 'internal_sensor': {
+        const res = m.config.senseResource ?? 'waste';
+        const count = res === 'carb' ? ctx.carbCount
+                    : res === 'protein' ? ctx.proteinCount
+                    : ctx.wasteCount;
+        const t = m.config.threshold ?? 5;
+        m.active = m.config.mode === 'below' ? count < t : count > t;
+        break;
+      }
+      case 'membrane_sensor': {
+        const side = m.config.membraneSide ?? 'external';
+        const target = m.config.senseTarget ?? 'carb';
+        const source = side === 'external' ? ctx.externalAdhered : ctx.internalAdhered;
+        const count = source[target];
+        const t = m.config.threshold ?? 1;
+        m.active = m.config.mode === 'below' ? count < t : count >= t;
+        break;
+      }
+      case 'light_sensor': {
+        m.active = ctx.lightLevel * 100 >= (m.config.threshold ?? 50);
+        break;
+      }
     }
   }
 
-  // Propagate cascades (single pass — no long chains yet)
+  // Propagate cascades (single pass)
   for (const c of cascades) {
     const from = modules.find(m => m.id === c.fromId);
     const to = modules.find(m => m.id === c.toId);
-    if (from?.active && to) {
-      to.active = true;
+    if (from?.active && to) to.active = true;
+  }
+
+  // Collect effects
+  const activeTransports: TransportChannel[] = [];
+  const activeAdherence: AdherenceRule[] = [];
+  let mitosisTriggered = false;
+  let rigidityActive = false;
+  let flexibilityActive = false;
+  let shakerActive = false;
+  let netGrowthRate = 0;
+
+  for (const m of modules) {
+    if (!m.active) continue;
+    switch (m.subtype) {
+      case 'membrane_transporter':
+        activeTransports.push({
+          resourceType: m.config.resourceType!,
+          direction: m.config.direction!,
+        });
+        break;
+      case 'adherence_module':
+        activeAdherence.push({
+          side: m.config.adherenceSide!,
+          target: m.config.adherenceTarget!,
+          mode: m.config.adherenceMode!,
+        });
+        break;
+      case 'mitosis':
+        mitosisTriggered = true;
+        break;
+      case 'rigidity_mod':
+        rigidityActive = true;
+        break;
+      case 'flexibility_mod':
+        flexibilityActive = true;
+        break;
+      case 'shaker':
+        shakerActive = true;
+        break;
+      case 'growth_mod':
+        netGrowthRate += m.config.growthMode === 'reduce' ? -1 : 1;
+        break;
     }
   }
 
-  return {
-    endocytosisActive: modules.some(m => m.subtype === 'endocytosis' && m.active),
-    wastePermeable: modules.some(m => m.subtype === 'waste_adherence_mod' && m.active),
-    wastePushActive: modules.some(m => m.subtype === 'waste_exocytosis' && m.active),
-  };
+  return { activeTransports, activeAdherence, mitosisTriggered, rigidityActive, flexibilityActive, shakerActive, netGrowthRate };
 }
 
 /** Find the next unoccupied membrane index for placing a new module */
 export function findNextMembraneIndex(modules: CellModule[]): number {
   const used = new Set(modules.map(m => m.membraneIndex));
-  // Start opposite side from starting modules (0, 1)
   for (let i = 8; i < 16; i++) if (!used.has(i)) return i;
-  for (let i = 2; i < 8; i++) if (!used.has(i)) return i;
+  for (let i = 3; i < 8; i++) if (!used.has(i)) return i;
   return 0;
 }
