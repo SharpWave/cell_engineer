@@ -5,7 +5,7 @@ import {
   fingerprintSimilarity, applyCellStiffness, resizeCell, getCellMass,
 } from '../creature/Cell';
 import { FoodParticle, createFoodParticle, stickFoodToBody, removeFood, nudgeFood } from './Food';
-import { addCarbs, addProtein, addWaste, updateParticles, spendCarbs, spendProtein } from './Energy';
+import { addCarbs, addProtein, addWaste, addResourceAt, updateParticles, spendCarbs, spendProtein } from './Energy';
 import { LightCycle, getLightLevel } from './LightCycle';
 import {
   updateModules, ModuleEffects, ModuleContext, SurfaceTarget,
@@ -190,6 +190,61 @@ export function updateEnvironment(
       cell: 0,
     };
 
+    // Evaluate eye sensors (spatial — need world positions)
+    const preActivated = new Set<string>();
+    const center = getCellCenter(cell);
+    for (const mod of cell.modules) {
+      if (mod.subtype !== 'eye') continue;
+      const mp = cell.membraneParticles[mod.membraneIndex];
+      if (!mp) continue;
+
+      // Look direction: from center outward through membrane point
+      const lookX = mp.position.x - center.x;
+      const lookY = mp.position.y - center.y;
+      const lookLen = Math.sqrt(lookX * lookX + lookY * lookY);
+      if (lookLen < 1) continue;
+      const lnx = lookX / lookLen;
+      const lny = lookY / lookLen;
+
+      const halfFov = ((mod.config.fovDegrees ?? 90) / 2) * (Math.PI / 180);
+      const cosHalfFov = Math.cos(halfFov);
+      const target = mod.config.eyeTarget ?? 'carb';
+      const EYE_RANGE = 300;
+
+      let seen = false;
+
+      // Check food particles
+      if (target === 'carb' || target === 'protein') {
+        for (const f of env.food) {
+          if (f.absorbed || f.resourceType !== target) continue;
+          const dx = f.body.position.x - center.x;
+          const dy = f.body.position.y - center.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > EYE_RANGE || dist < 1) continue;
+          const dot = (dx / dist) * lnx + (dy / dist) * lny;
+          if (dot >= cosHalfFov) { seen = true; break; }
+        }
+      }
+
+      // Check other cells
+      if (!seen && target === 'cell') {
+        for (const other of cells) {
+          if (other.id === cell.id) continue;
+          const oc = getCellCenter(other);
+          const dx = oc.x - center.x;
+          const dy = oc.y - center.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > EYE_RANGE || dist < 1) continue;
+          const dot = (dx / dist) * lnx + (dy / dist) * lny;
+          if (dot >= cosHalfFov) { seen = true; break; }
+        }
+      }
+
+      // Check waste food (waste isn't a food type, so skip unless we add it)
+
+      if (seen) preActivated.add(mod.id);
+    }
+
     // Build module context
     const ctx: ModuleContext = {
       carbCount: cell.energy.carbs,
@@ -199,6 +254,7 @@ export function updateEnvironment(
       internalAdhered,
       lightLevel: light,
       maxCellSimilarity: maxSimilarity,
+      preActivated,
     };
     const effects = updateModules(cell.modules, cell.cascades, ctx);
     env.cellEffects.set(cell.id, effects);
@@ -206,10 +262,28 @@ export function updateEnvironment(
     // Apply stiffness modulation
     applyCellStiffness(cell, effects.rigidityActive, effects.flexibilityActive);
 
+    // Foot: pull cell toward foot's membrane direction
+    for (const mod of cell.modules) {
+      if (mod.subtype !== 'foot' || !mod.active) continue;
+      const mp = cell.membraneParticles[mod.membraneIndex];
+      if (!mp) continue;
+      const dx = mp.position.x - center.x;
+      const dy = mp.position.y - center.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 1) continue;
+      const mass = getCellMass(cell);
+      const FOOT_FORCE = 0.0015 / Math.max(1, mass * 0.02);
+      const nx = dx / dist;
+      const ny = dy / dist;
+      for (const p of cell.membraneParticles) {
+        Matter.Body.applyForce(p, p.position, { x: nx * FOOT_FORCE, y: ny * FOOT_FORCE });
+      }
+    }
+
     // Shaker: oscillate membrane particles for random-walk motion (mass-scaled)
     if (effects.shakerActive) {
       const mass = getCellMass(cell);
-      const SHAKE_FORCE = 0.0008 / Math.max(1, mass * 0.02);
+      const SHAKE_FORCE = 0.004 / Math.max(1, mass * 0.02);
       for (const p of cell.membraneParticles) {
         Matter.Body.applyForce(p, p.position, {
           x: (Math.random() - 0.5) * SHAKE_FORCE,
@@ -274,7 +348,6 @@ export function updateEnvironment(
     const carbExo = hasTransport(effects, 'carb', 'exo');
     const proteinExo = hasTransport(effects, 'protein', 'exo');
 
-    const center = getCellCenter(cell);
     const memPoints = getMembranePoints(cell);
     const result = updateParticles(
       cell.energy, memPoints, center,
@@ -433,10 +506,26 @@ export function updateEnvironment(
         );
 
         if (isAttached) {
-          if (f.resourceType === 'carb') {
-            addCarbs(cell.energy, f.resourceValue);
+          // Find the membrane particle this food is stuck to
+          const center = getCellCenter(cell);
+          const attachedMp = cell.membraneParticles.find(mp =>
+            f.stuckConstraint && (
+              (f.stuckConstraint as any).bodyA === mp || (f.stuckConstraint as any).bodyB === mp
+            )
+          );
+          if (attachedMp) {
+            // Place particle on inner side of membrane (reflected across center)
+            const mpx = attachedMp.position.x - center.x;
+            const mpy = attachedMp.position.y - center.y;
+            const dist = Math.sqrt(mpx * mpx + mpy * mpy);
+            // Inner side: same direction as membrane point but pushed inward
+            const innerDist = Math.max(dist - 10, dist * 0.7);
+            const ix = dist > 0 ? (mpx / dist) * innerDist : 0;
+            const iy = dist > 0 ? (mpy / dist) * innerDist : 0;
+            addResourceAt(cell.energy, f.resourceType, f.resourceValue, ix, iy);
           } else {
-            addProtein(cell.energy, f.resourceValue);
+            if (f.resourceType === 'carb') addCarbs(cell.energy, f.resourceValue);
+            else addProtein(cell.energy, f.resourceValue);
           }
           removeFood(world, f);
           env.food.splice(i, 1);
@@ -450,8 +539,8 @@ export function updateEnvironment(
 /** Kill the last non-starter module on a cell due to maintenance failure */
 function killModule(cell: Cell): void {
   // Kill from the end — last-added modules die first
-  // Protect the first 4 starter modules (adherence, sensor, transporter, growth)
-  for (let i = cell.modules.length - 1; i >= 4; i--) {
+  // Protect starter modules (carb chain + protein chain + growth = 7)
+  for (let i = cell.modules.length - 1; i >= 7; i--) {
     const mod = cell.modules[i];
     cell.cascades = cell.cascades.filter(c => c.fromId !== mod.id && c.toId !== mod.id);
     cell.modules.splice(i, 1);

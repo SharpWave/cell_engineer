@@ -5,6 +5,7 @@ import {
   findNextMembraneIndex, getModuleDisplayLabel,
 } from '../creature/Module';
 import { updateFingerprint } from '../creature/Cell';
+import { SelectionState } from './Selection';
 
 /** Subtypes available for purchase */
 const PURCHASABLE: ModuleSubtype[] = [
@@ -18,10 +19,18 @@ const PURCHASABLE: ModuleSubtype[] = [
   'flexibility_mod',
   'shaker',
   'growth_mod',
+  'eye',
+  'foot',
 ];
+
+/** Modules that require membrane click placement */
+const PLACEMENT_MODULES: ModuleSubtype[] = ['eye', 'foot'];
 
 /** Tracks the pending module being configured before confirmation */
 let pendingBuild: { subtype: ModuleSubtype; config: ModuleConfig } | null = null;
+
+/** Whether we're waiting for a membrane click */
+let awaitingPlacement = false;
 
 /**
  * Build (or rebuild) the full engineering panel DOM inside the container.
@@ -29,6 +38,7 @@ let pendingBuild: { subtype: ModuleSubtype; config: ModuleConfig } | null = null
 export function buildEngineeringPanel(
   container: HTMLElement,
   cell: Cell,
+  selection?: SelectionState,
 ): void {
   container.innerHTML = '';
 
@@ -60,9 +70,9 @@ export function buildEngineeringPanel(
     `;
     modSection.appendChild(row);
 
-    // Delete button for non-starter modules (index >= 3)
+    // Delete button for non-starter modules (index >= 7)
     const modIndex = cell.modules.indexOf(mod);
-    if (modIndex >= 3) {
+    if (modIndex >= 7) {
       const delBtn = document.createElement('button');
       delBtn.className = 'eng-btn';
       delBtn.style.fontSize = '10px';
@@ -72,7 +82,7 @@ export function buildEngineeringPanel(
         cell.cascades = cell.cascades.filter(c => c.fromId !== mod.id && c.toId !== mod.id);
         cell.modules.splice(cell.modules.indexOf(mod), 1);
         updateFingerprint(cell);
-        buildEngineeringPanel(container, cell);
+        buildEngineeringPanel(container, cell, selection);
       });
       modSection.appendChild(delBtn);
     }
@@ -85,7 +95,27 @@ export function buildEngineeringPanel(
   addSection.className = 'prop-section';
   addSection.innerHTML = '<div class="prop-title">Add Module</div>';
 
-  if (pendingBuild) {
+  if (awaitingPlacement) {
+    // Waiting for membrane click
+    const msg = document.createElement('div');
+    msg.style.color = '#e0c878';
+    msg.style.fontSize = '12px';
+    msg.style.padding = '8px 0';
+    msg.textContent = 'Click on the cell membrane to place the module...';
+    addSection.appendChild(msg);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'eng-btn';
+    cancelBtn.style.color = '#ff6666';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => {
+      awaitingPlacement = false;
+      pendingBuild = null;
+      if (selection) selection.pendingPlacement = null;
+      buildEngineeringPanel(container, cell, selection);
+    });
+    addSection.appendChild(cancelBtn);
+  } else if (pendingBuild) {
     // Show config UI for the pending module
     const subtype = pendingBuild.subtype;
     const info = MODULE_CATALOG[subtype];
@@ -122,6 +152,11 @@ export function buildEngineeringPanel(
     if (subtype === 'growth_mod') {
       addSection.appendChild(buildConfigSelect('Mode', ['grow', 'reduce'], config.growthMode ?? 'grow', v => { config.growthMode = v as any; }));
     }
+    if (subtype === 'eye') {
+      addSection.appendChild(buildConfigSelect('Target', ['carb', 'protein', 'cell'], config.eyeTarget ?? 'carb', v => { config.eyeTarget = v as any; }));
+      addSection.appendChild(buildConfigSlider('FOV (°)', 10, 180, config.fovDegrees ?? 90, v => { config.fovDegrees = v; }));
+    }
+    // foot has no config options
 
     // Confirm / Cancel buttons
     const btnRow = document.createElement('div');
@@ -129,22 +164,41 @@ export function buildEngineeringPanel(
     btnRow.style.gap = '4px';
     btnRow.style.marginTop = '4px';
 
+    const needsPlacement = PLACEMENT_MODULES.includes(subtype);
+
     const okBtn = document.createElement('button');
     okBtn.className = 'eng-btn';
     okBtn.style.flex = '1';
     okBtn.style.textAlign = 'center';
     okBtn.style.color = '#4aff8a';
-    okBtn.textContent = 'Build';
+    okBtn.textContent = needsPlacement ? 'Place on membrane' : 'Build';
     okBtn.disabled = cell.energy.protein < info.cost;
     okBtn.addEventListener('click', () => {
-      if (spendProtein(cell.energy, info.cost)) {
-        const idx = findNextMembraneIndex(cell.modules);
-        const mod = createModule(subtype, idx, config);
-        cell.modules.push(mod);
-        updateFingerprint(cell);
+      if (needsPlacement && selection) {
+        // Enter placement mode — wait for membrane click
+        awaitingPlacement = true;
+        selection.pendingPlacement = (membraneIndex: number) => {
+          if (spendProtein(cell.energy, info.cost)) {
+            const mod = createModule(subtype, membraneIndex, config);
+            cell.modules.push(mod);
+            updateFingerprint(cell);
+          }
+          awaitingPlacement = false;
+          pendingBuild = null;
+          buildEngineeringPanel(container, cell, selection);
+        };
+        buildEngineeringPanel(container, cell, selection);
+      } else {
+        // Non-placement build
+        if (spendProtein(cell.energy, info.cost)) {
+          const idx = findNextMembraneIndex(cell.modules);
+          const mod = createModule(subtype, idx, config);
+          cell.modules.push(mod);
+          updateFingerprint(cell);
+        }
+        pendingBuild = null;
+        buildEngineeringPanel(container, cell, selection);
       }
-      pendingBuild = null;
-      buildEngineeringPanel(container, cell);
     });
 
     const cancelBtn = document.createElement('button');
@@ -155,7 +209,7 @@ export function buildEngineeringPanel(
     cancelBtn.textContent = 'Cancel';
     cancelBtn.addEventListener('click', () => {
       pendingBuild = null;
-      buildEngineeringPanel(container, cell);
+      buildEngineeringPanel(container, cell, selection);
     });
 
     btnRow.appendChild(okBtn);
@@ -171,7 +225,7 @@ export function buildEngineeringPanel(
       btn.disabled = cell.energy.protein < info.cost;
       btn.addEventListener('click', () => {
         pendingBuild = { subtype, config: getDefaultBuildConfig(subtype) };
-        buildEngineeringPanel(container, cell);
+        buildEngineeringPanel(container, cell, selection);
       });
       addSection.appendChild(btn);
     }
@@ -232,7 +286,7 @@ export function buildEngineeringPanel(
       const exists = cell.cascades.some(c => c.fromId === fromId && c.toId === toId);
       if (!exists && spendProtein(cell.energy, 1)) {
         cell.cascades.push(createCascade(fromId, toId));
-        buildEngineeringPanel(container, cell);
+        buildEngineeringPanel(container, cell, selection);
       }
     });
 
@@ -267,6 +321,8 @@ function getDefaultBuildConfig(subtype: ModuleSubtype): ModuleConfig {
       return { threshold: 50 };
     case 'growth_mod':
       return { growthMode: 'grow' };
+    case 'eye':
+      return { eyeTarget: 'carb', fovDegrees: 90 };
     default:
       return {};
   }

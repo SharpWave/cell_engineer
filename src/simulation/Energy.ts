@@ -80,6 +80,26 @@ function makeParticle(type: InternalParticle['type']): InternalParticle {
   };
 }
 
+/** Create a particle at a specific position (relative to cell center) */
+export function makeParticleAt(type: InternalParticle['type'], x: number, y: number): InternalParticle {
+  return {
+    x, y,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: (Math.random() - 0.5) * 0.3,
+    type,
+  };
+}
+
+/** Add a resource with particle placed at a specific position (for endocytosis) */
+export function addResourceAt(state: EnergyState, type: 'carb' | 'protein', amount: number, x: number, y: number): void {
+  const count = Math.floor(amount);
+  if (type === 'carb') state.carbs += count;
+  else state.protein += count;
+  for (let i = 0; i < count; i++) {
+    state.particles.push(makeParticleAt(type, x, y));
+  }
+}
+
 
 // ---- Polygon collision helpers ----
 
@@ -191,6 +211,64 @@ export function updateParticles(
   const expelledCarbPositions: Vec2[] = [];
   const expelledProteinPositions: Vec2[] = [];
 
+  // Inter-particle forces (O(n^2) but particle counts are small)
+  const particles = state.particles;
+  const INTERACT_RANGE = 25;
+  const INTERACT_FORCE = 0.003;
+  const PARTICLE_RADIUS = 3;
+  const MIN_SEP = PARTICLE_RADIUS * 2 * 0.95; // 5% overlap means 95% of diameter apart
+  const REPEL_FORCE = 0.02;
+  for (let i = 0; i < particles.length; i++) {
+    const a = particles[i];
+    for (let j = i + 1; j < particles.length; j++) {
+      const b = particles[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq > INTERACT_RANGE * INTERACT_RANGE) continue;
+      const dist = Math.sqrt(distSq);
+      if (dist < 0.1) continue;
+      const nx = dx / dist;
+      const ny = dy / dist;
+
+      // Hard separation: no more than 40% overlap
+      if (dist < MIN_SEP) {
+        const push = (MIN_SEP - dist) * REPEL_FORCE;
+        a.vx -= nx * push;
+        a.vy -= ny * push;
+        b.vx += nx * push;
+        b.vy += ny * push;
+        continue; // skip attraction when overlapping
+      }
+
+      // Determine attraction (+) or repulsion (-)
+      // protein ↔ protein: attract
+      // carb ↔ protein: attract
+      // carb ↔ carb: repel
+      // waste ↔ protein: attract
+      // waste ↔ waste: attract
+      // waste ↔ carb: ignore
+      let sign = 0;
+      const types = a.type + ':' + b.type;
+      switch (types) {
+        case 'protein:protein': sign = 1; break;
+        case 'carb:protein': case 'protein:carb': sign = 1; break;
+        case 'carb:carb': sign = -1; break;
+        case 'waste:protein': case 'protein:waste': sign = -1; break;
+        case 'waste:waste': sign = -1; break;
+        case 'waste:carb': case 'carb:waste': sign = -1; break;
+      }
+
+      if (sign !== 0) {
+        const f = sign * INTERACT_FORCE * (1 - dist / INTERACT_RANGE);
+        a.vx += nx * f;
+        a.vy += ny * f;
+        b.vx -= nx * f;
+        b.vy -= ny * f;
+      }
+    }
+  }
+
   for (let i = state.particles.length - 1; i >= 0; i--) {
     const p = state.particles[i];
 
@@ -207,13 +285,13 @@ export function updateParticles(
       }
     }
 
-    // Random wandering
+    // Cytoplasm jitter
     p.vx += (Math.random() - 0.5) * 0.06 * dt;
     p.vy += (Math.random() - 0.5) * 0.06 * dt;
 
     // Damping
-    p.vx *= 0.97;
-    p.vy *= 0.97;
+    p.vx *= 0.95;
+    p.vy *= 0.95;
 
     p.x += p.vx * dt;
     p.y += p.vy * dt;

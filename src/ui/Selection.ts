@@ -10,10 +10,12 @@ export type SelectionTarget =
 
 export interface SelectionState {
   current: SelectionTarget;
+  /** When set, next canvas click picks a membrane index on the selected cell */
+  pendingPlacement: ((membraneIndex: number) => void) | null;
 }
 
 export function createSelectionState(): SelectionState {
-  return { current: null };
+  return { current: null, pendingPlacement: null };
 }
 
 /** Convert screen coordinates to world coordinates */
@@ -51,6 +53,23 @@ function isNearFood(wx: number, wy: number, food: FoodParticle): boolean {
   return Math.sqrt(dx * dx + dy * dy) <= 15;
 }
 
+/** Find the nearest membrane particle index to a world point */
+function findNearestMembraneIndex(wx: number, wy: number, cell: Cell): number {
+  let bestIdx = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < cell.membraneParticles.length; i++) {
+    const mp = cell.membraneParticles[i];
+    const dx = wx - mp.position.x;
+    const dy = wy - mp.position.y;
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
 export function handleClick(
   screenX: number,
   screenY: number,
@@ -61,6 +80,15 @@ export function handleClick(
   selection: SelectionState,
 ): void {
   const { x: wx, y: wy } = screenToWorld(screenX, screenY, camera, canvas);
+
+  // If in placement mode, find nearest membrane point on the selected cell
+  if (selection.pendingPlacement && selection.current?.type === 'cell') {
+    const cell = selection.current.cell;
+    const idx = findNearestMembraneIndex(wx, wy, cell);
+    selection.pendingPlacement(idx);
+    selection.pendingPlacement = null;
+    return;
+  }
 
   // Check food first (smaller targets, prioritize)
   for (const food of env.food) {

@@ -36,7 +36,7 @@ export function updateInspector(selection: SelectionState): void {
     if (panelBuiltFor !== cell) {
       // First time selecting this cell — build the full engineering panel
       panelBuiltFor = cell;
-      buildEngineeringPanel(el, cell);
+      buildEngineeringPanel(el, cell, selection);
     } else {
       // Just update dynamic statuses
       updateModuleStatuses(el, cell);

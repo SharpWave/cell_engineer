@@ -140,7 +140,7 @@ export function createCell(
       return createCascade(fromId, toId);
     });
   } else {
-    // Starter: external carb adherence + membrane sensor + carb endocytosis transporter + growth
+    // Starter: carb intake chain + protein intake chain + growth
     const carbAdhere = createModule('adherence_module', 0, {
       adherenceSide: 'external', adherenceTarget: 'carb', adherenceMode: 'adherence',
     });
@@ -150,10 +150,20 @@ export function createCell(
     const carbTransport = createModule('membrane_transporter', 2, {
       resourceType: 'carb', direction: 'endo',
     });
+    const proteinAdhere = createModule('adherence_module', 8, {
+      adherenceSide: 'external', adherenceTarget: 'protein', adherenceMode: 'adherence',
+    });
+    const proteinSensor = createModule('membrane_sensor', 9, {
+      membraneSide: 'external', senseTarget: 'protein', threshold: 1, mode: 'above',
+    });
+    const proteinTransport = createModule('membrane_transporter', 10, {
+      resourceType: 'protein', direction: 'endo',
+    });
     const growth = createModule('growth_mod', 3, { growthMode: 'grow' });
-    const startCascade = createCascade(carbSensor.id, carbTransport.id);
-    modules = [carbAdhere, carbSensor, carbTransport, growth];
-    cascades = [startCascade];
+    const carbCascade = createCascade(carbSensor.id, carbTransport.id);
+    const proteinCascade = createCascade(proteinSensor.id, proteinTransport.id);
+    modules = [carbAdhere, carbSensor, carbTransport, proteinAdhere, proteinSensor, proteinTransport, growth];
+    cascades = [carbCascade, proteinCascade];
   }
 
   let energy: EnergyState;
