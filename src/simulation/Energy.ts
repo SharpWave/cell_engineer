@@ -44,6 +44,19 @@ export function addWaste(state: EnergyState, amount: number): void {
   }
 }
 
+/** Reconcile counters to match actual particle counts (authoritative source of truth) */
+export function reconcileEnergy(state: EnergyState): void {
+  let carbs = 0, protein = 0, waste = 0;
+  for (const p of state.particles) {
+    if (p.type === 'carb') carbs++;
+    else if (p.type === 'protein') protein++;
+    else waste++;
+  }
+  state.carbs = carbs;
+  state.protein = protein;
+  state.waste = waste;
+}
+
 /** Timestamped event log for rolling window stats */
 export interface ResourceEvent { time: number; amount: number; }
 

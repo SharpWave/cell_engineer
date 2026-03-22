@@ -7,7 +7,7 @@ import {
 import { FoodParticle, createFoodParticle, stickFoodToBody, removeFood, nudgeFood } from './Food';
 import {
   addCarbs, addProtein, addWaste, addResourceAt, updateParticles, spendCarbs, spendProtein,
-  ResourceEvent, spendLog, currentGameTime, setCurrentGameTime, sumEvents, pruneEvents,
+  ResourceEvent, spendLog, currentGameTime, setCurrentGameTime, sumEvents, pruneEvents, reconcileEnergy,
 } from './Energy';
 import { LightCycle, getLightLevel } from './LightCycle';
 import {
@@ -375,13 +375,6 @@ export function updateEnvironment(
       proteinExo, proteinExo,   // proteinPush, proteinPermeable
       delta,
     );
-    cell.energy.waste -= result.expelledWaste;
-    if (cell.energy.waste < 0) cell.energy.waste = 0;
-    cell.energy.carbs -= result.expelledCarbs;
-    if (cell.energy.carbs < 0) cell.energy.carbs = 0;
-    cell.energy.protein -= result.expelledProtein;
-    if (cell.energy.protein < 0) cell.energy.protein = 0;
-
     // Expelled carbs become carb food
     for (const pos of result.expelledCarbPositions) {
       env.food.push(createFoodParticle(world, pos.x, pos.y, 'carb'));
@@ -394,6 +387,9 @@ export function updateEnvironment(
     for (const pos of result.expelledWastePositions) {
       env.food.push(createFoodParticle(world, pos.x, pos.y, 'waste'));
     }
+
+    // Reconcile counters to match actual particles (prevents drift)
+    reconcileEnergy(cell.energy);
 
     // Cell-cell adherence/repulsion forces
     for (const otherId of cell.touchingCells) {

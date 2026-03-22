@@ -1,7 +1,7 @@
 import Matter from 'matter-js';
 import { CellProperties, defaultCellProperties } from './CellProperties';
 import { CellModule, SignalCascade, MODULE_CATALOG, createModule, createCascade, getModuleFingerprintKey } from './Module';
-import { EnergyState, createEnergyState, addCarbs, addProtein, spendProtein } from '../simulation/Energy';
+import { EnergyState, InternalParticle, createEnergyState, addCarbs, addProtein, spendProtein, reconcileEnergy } from '../simulation/Energy';
 
 const MEMBRANE_POINTS = 16;
 const COLLISION_CATEGORY = 0x0002;
@@ -252,21 +252,35 @@ export function completeMitosis(cell: Cell, world: Matter.World): Cell {
   const replicationCost = mitosisProteinCost(cell);
   spendProtein(cell.energy, replicationCost);
 
-  // Split remaining resources between parent and daughter
-  const halfCarbs = Math.floor(cell.energy.carbs / 2);
-  const halfProtein = Math.floor(cell.energy.protein / 2);
-  const halfWaste = Math.floor(cell.energy.waste / 2);
-  const halfParticles = Math.floor(cell.energy.particles.length / 2);
-
+  // Split remaining resources between parent and daughter (by type)
   const daughterEnergy = createEnergyState();
-  daughterEnergy.carbs = halfCarbs;
-  daughterEnergy.protein = halfProtein;
-  daughterEnergy.waste = halfWaste;
-  daughterEnergy.particles = cell.energy.particles.splice(halfParticles);
+  const parentKeep: InternalParticle[] = [];
+  const daughterGet: InternalParticle[] = [];
+  const counts = { carb: 0, protein: 0, waste: 0 };
 
-  cell.energy.carbs -= halfCarbs;
-  cell.energy.protein -= halfProtein;
-  cell.energy.waste -= halfWaste;
+  // Count particles by type
+  for (const p of cell.energy.particles) counts[p.type]++;
+
+  // Determine how many of each type the daughter gets
+  const halfCarbs = Math.floor(counts.carb / 2);
+  const halfProtein = Math.floor(counts.protein / 2);
+  const halfWaste = Math.floor(counts.waste / 2);
+  const targetDaughter = { carb: halfCarbs, protein: halfProtein, waste: halfWaste };
+  const given = { carb: 0, protein: 0, waste: 0 };
+
+  for (const p of cell.energy.particles) {
+    if (given[p.type] < targetDaughter[p.type]) {
+      daughterGet.push(p);
+      given[p.type]++;
+    } else {
+      parentKeep.push(p);
+    }
+  }
+
+  cell.energy.particles = parentKeep;
+  daughterEnergy.particles = daughterGet;
+  reconcileEnergy(cell.energy);
+  reconcileEnergy(daughterEnergy);
 
   // Each daughter gets half the parent's membrane length
   const halfScale = cell.properties.growthScale / 2;
