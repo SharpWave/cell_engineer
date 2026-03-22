@@ -267,6 +267,9 @@ export function buildEngineeringPanel(
       opt.textContent = getModuleDisplayLabel(s);
       fromSelect.appendChild(opt);
     }
+    fromSelect.addEventListener('focus', () => { if (selection) selection.highlightedModuleId = fromSelect.value; });
+    fromSelect.addEventListener('change', () => { if (selection) selection.highlightedModuleId = fromSelect.value; });
+    fromSelect.addEventListener('blur', () => { if (selection) selection.highlightedModuleId = null; });
 
     const toSelect = document.createElement('select');
     toSelect.className = 'eng-select';
@@ -276,6 +279,9 @@ export function buildEngineeringPanel(
       opt.textContent = getModuleDisplayLabel(t);
       toSelect.appendChild(opt);
     }
+    toSelect.addEventListener('focus', () => { if (selection) selection.highlightedModuleId = toSelect.value; });
+    toSelect.addEventListener('change', () => { if (selection) selection.highlightedModuleId = toSelect.value; });
+    toSelect.addEventListener('blur', () => { if (selection) selection.highlightedModuleId = null; });
 
     const linkBtn = document.createElement('button');
     linkBtn.className = 'eng-btn';

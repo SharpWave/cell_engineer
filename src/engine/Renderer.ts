@@ -82,7 +82,7 @@ export function render(
     drawInternalParticles(ctx, cell);
 
     // Modules on membrane
-    drawModules(ctx, cell);
+    drawModules(ctx, cell, now, selection);
 
     // Cascade connections
     drawCascades(ctx, cell);
@@ -397,12 +397,28 @@ function drawInternalParticles(
   }
 }
 
-function drawModules(ctx: CanvasRenderingContext2D, cell: Cell): void {
+function drawModules(ctx: CanvasRenderingContext2D, cell: Cell, now: number, selection: SelectionState): void {
   const center = getCellCenter(cell);
   const memPoints = getMembranePoints(cell);
 
+  // Draw anchor dots on every membrane point
+  ctx.fillStyle = '#000000';
+  for (const mp of memPoints) {
+    ctx.beginPath();
+    ctx.arc(mp.x, mp.y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Group modules by membrane index for stacking
+  const byIndex = new Map<number, typeof cell.modules>();
   for (const mod of cell.modules) {
-    const mp = memPoints[mod.membraneIndex];
+    const list = byIndex.get(mod.membraneIndex);
+    if (list) list.push(mod);
+    else byIndex.set(mod.membraneIndex, [mod]);
+  }
+
+  for (const [memIdx, mods] of byIndex) {
+    const mp = memPoints[memIdx];
     if (!mp) continue;
 
     const dx = mp.x - center.x;
@@ -411,54 +427,131 @@ function drawModules(ctx: CanvasRenderingContext2D, cell: Cell): void {
     if (dist === 0) continue;
     const nx = dx / dist;
     const ny = dy / dist;
-
-    // Position the square just outside the membrane
-    const mx = mp.x + nx * 12;
-    const my = mp.y + ny * 12;
     const angle = Math.atan2(ny, nx);
 
-    const info = MODULE_CATALOG[mod.subtype];
-    const color = mod.active ? info.activeColor : info.color;
-    const half = MODULE_SIZE / 2;
+    for (let s = 0; s < mods.length; s++) {
+      const mod = mods[s];
+      const stackOffset = 12 + s * (MODULE_SIZE + 2);
+      const mx = mp.x + nx * stackOffset;
+      const my = mp.y + ny * stackOffset;
 
-    ctx.save();
-    ctx.translate(mx, my);
-    ctx.rotate(angle);
-
-    // Active glow
-    if (mod.active) {
-      ctx.shadowColor = info.activeColor;
-      ctx.shadowBlur = 10;
-    }
-
-    ctx.fillStyle = color;
-    ctx.strokeStyle = '#111';
-    ctx.lineWidth = 2;
-    ctx.fillRect(-half, -half, MODULE_SIZE, MODULE_SIZE);
-    ctx.strokeRect(-half, -half, MODULE_SIZE, MODULE_SIZE);
-
-    ctx.shadowBlur = 0;
-    ctx.restore();
-
-    // Draw FOV cone for active eye modules
-    if (mod.subtype === 'eye' && mod.active) {
-      const fovDeg = mod.config.fovDegrees ?? 90;
-      const halfFov = (fovDeg / 2) * (Math.PI / 180);
-      const lookAngle = Math.atan2(dy, dx);
-      const EYE_RANGE = 300;
+      const info = MODULE_CATALOG[mod.subtype];
+      const color = mod.active ? info.activeColor : info.color;
+      const half = MODULE_SIZE / 2;
 
       ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(mp.x, mp.y);
-      ctx.arc(mp.x, mp.y, EYE_RANGE, lookAngle - halfFov, lookAngle + halfFov);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      ctx.translate(mx, my);
+      ctx.rotate(angle);
+
+      if (mod.active) {
+        ctx.shadowColor = info.activeColor;
+        ctx.shadowBlur = 10;
+      }
+
+      if (mod.subtype === 'eye') {
+        drawEyeShape(ctx, half, color, mod.active);
+      } else if (mod.subtype === 'foot') {
+        drawFootShape(ctx, half, color, now);
+      } else {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 2;
+        ctx.fillRect(-half, -half, MODULE_SIZE, MODULE_SIZE);
+        ctx.strokeRect(-half, -half, MODULE_SIZE, MODULE_SIZE);
+      }
+
+      ctx.shadowBlur = 0;
+
+      // Highlight ring if this module is selected in cascade UI
+      if (selection.highlightedModuleId === mod.id) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, half + 4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
       ctx.restore();
+
+      // Draw FOV cone for active eye modules
+      if (mod.subtype === 'eye' && mod.active) {
+        const fovDeg = mod.config.fovDegrees ?? 90;
+        const halfFov = (fovDeg / 2) * (Math.PI / 180);
+        const lookAngle = Math.atan2(dy, dx);
+        const EYE_RANGE = 300;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(mp.x, mp.y);
+        ctx.arc(mp.x, mp.y, EYE_RANGE, lookAngle - halfFov, lookAngle + halfFov);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+      }
     }
+  }
+}
+
+/** Draw an eye shape: oval with a dark pupil */
+function drawEyeShape(ctx: CanvasRenderingContext2D, half: number, color: string, active: boolean): void {
+  // Outer eye (almond shape)
+  ctx.fillStyle = '#e8e8f0';
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, half + 1, half * 0.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Iris
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(1, 0, half * 0.45, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pupil
+  ctx.fillStyle = active ? '#111' : '#333';
+  ctx.beginPath();
+  ctx.arc(1, 0, half * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Draw a foot: rotating circle with cilia spokes */
+function drawFootShape(ctx: CanvasRenderingContext2D, half: number, color: string, now: number): void {
+  const radius = half * 0.8;
+  const spokeCount = 6;
+  const spinAngle = (now * 0.004) % (Math.PI * 2);
+
+  // Central circle
+  ctx.fillStyle = color;
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Cilia spokes
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < spokeCount; i++) {
+    const a = spinAngle + (i / spokeCount) * Math.PI * 2;
+    const innerR = radius;
+    const outerR = radius + half * 0.5;
+    // Curved spoke with slight wave
+    const wave = Math.sin(now * 0.008 + i * 1.2) * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * innerR, Math.sin(a) * innerR);
+    ctx.quadraticCurveTo(
+      Math.cos(a) * (innerR + outerR) * 0.5 + wave,
+      Math.sin(a) * (innerR + outerR) * 0.5 + wave,
+      Math.cos(a) * outerR, Math.sin(a) * outerR,
+    );
+    ctx.stroke();
   }
 }
 

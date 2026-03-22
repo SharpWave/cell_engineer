@@ -12,10 +12,12 @@ export interface SelectionState {
   current: SelectionTarget;
   /** When set, next canvas click picks a membrane index on the selected cell */
   pendingPlacement: ((membraneIndex: number) => void) | null;
+  /** Module ID to visually highlight on the cell (from cascade UI hover/focus) */
+  highlightedModuleId: string | null;
 }
 
 export function createSelectionState(): SelectionState {
-  return { current: null, pendingPlacement: null };
+  return { current: null, pendingPlacement: null, highlightedModuleId: null };
 }
 
 /** Convert screen coordinates to world coordinates */
