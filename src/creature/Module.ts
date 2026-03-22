@@ -21,7 +21,8 @@ export type ModuleSubtype =
   | 'shaker'
   | 'growth_mod'
   | 'eye'
-  | 'foot';
+  | 'foot'
+  | 'membrane_length_sensor';
 
 // --- Config ---
 
@@ -78,6 +79,8 @@ export interface ModuleContext {
   internalAdhered: Record<SurfaceTarget, number>;
   lightLevel: number;
   maxCellSimilarity: number;
+  /** Current membrane length as growthScale (1.0 = default) */
+  membraneLength: number;
   /** Module IDs pre-activated by spatial evaluation (e.g., eye) */
   preActivated: Set<string>;
 }
@@ -139,6 +142,7 @@ export const MODULE_CATALOG: Record<ModuleSubtype, {
   growth_mod:           { label: 'Growth/Reduction',     cost: 5,  color: '#2a7a3a', activeColor: '#44ff66', category: 'effector' },
   eye:                  { label: 'Eye',                  cost: 8,  color: '#5a5a7a', activeColor: '#ffffff', category: 'sensor' },
   foot:                 { label: 'Foot',                 cost: 8,  color: '#7a4a2a', activeColor: '#ff8844', category: 'effector' },
+  membrane_length_sensor: { label: 'Membrane Length Sensor', cost: 4, color: '#5a7a5a', activeColor: '#88ff88', category: 'sensor' },
 };
 
 // --- Display label from config ---
@@ -167,6 +171,10 @@ export function getModuleDisplayLabel(mod: CellModule): string {
       return `Eye (${capitalize(mod.config.eyeTarget ?? 'carb')}, ${mod.config.fovDegrees ?? 90}°)`;
     case 'foot':
       return `Foot [${mod.membraneIndex}]`;
+    case 'membrane_length_sensor': {
+      const mode = mod.config.mode === 'below' ? '<' : '≥';
+      return `Membrane ${mode} ${mod.config.threshold ?? 1}`;
+    }
     default:
       return MODULE_CATALOG[mod.subtype].label;
   }
@@ -194,6 +202,8 @@ export function getModuleFingerprintKey(mod: CellModule): string {
       return `eye:${mod.config.eyeTarget}:${mod.config.fovDegrees}`;
     case 'foot':
       return `foot:${mod.membraneIndex}`;
+    case 'membrane_length_sensor':
+      return `mlsens:${mod.config.threshold}:${mod.config.mode}`;
     default:
       return mod.subtype;
   }
@@ -219,6 +229,8 @@ function getDefaultConfig(subtype: ModuleSubtype): ModuleConfig {
       return { growthMode: 'grow' as GrowthMode };
     case 'eye':
       return { eyeTarget: 'carb' as SurfaceTarget, fovDegrees: 90 };
+    case 'membrane_length_sensor':
+      return { threshold: 1, mode: 'above' as const };
     default:
       return {};
   }
@@ -283,6 +295,11 @@ export function updateModules(
       }
       case 'light_sensor': {
         m.active = ctx.lightLevel * 100 >= (m.config.threshold ?? 50);
+        break;
+      }
+      case 'membrane_length_sensor': {
+        const t = m.config.threshold ?? 1;
+        m.active = m.config.mode === 'below' ? ctx.membraneLength < t : ctx.membraneLength >= t;
         break;
       }
     }

@@ -272,6 +272,7 @@ export function updateEnvironment(
       internalAdhered,
       lightLevel: light,
       maxCellSimilarity: maxSimilarity,
+      membraneLength: cell.properties.growthScale,
       preActivated,
     };
     const effects = updateModules(cell.modules, cell.cascades, ctx);

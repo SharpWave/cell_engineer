@@ -21,6 +21,7 @@ const PURCHASABLE: ModuleSubtype[] = [
   'growth_mod',
   'eye',
   'foot',
+  'membrane_length_sensor',
 ];
 
 /** Modules that require membrane click placement */
@@ -155,6 +156,10 @@ export function buildEngineeringPanel(
     if (subtype === 'eye') {
       addSection.appendChild(buildConfigSelect('Target', ['carb', 'protein', 'cell'], config.eyeTarget ?? 'carb', v => { config.eyeTarget = v as any; }));
       addSection.appendChild(buildConfigNumber('FOV (°)', config.fovDegrees ?? 90, v => { config.fovDegrees = v; }));
+    }
+    if (subtype === 'membrane_length_sensor') {
+      addSection.appendChild(buildConfigNumber('Threshold', config.threshold ?? 1, v => { config.threshold = v; }));
+      addSection.appendChild(buildConfigSelect('Mode', ['above', 'below'], config.mode ?? 'above', v => { config.mode = v as any; }));
     }
     // foot has no config options
 
@@ -329,6 +334,8 @@ function getDefaultBuildConfig(subtype: ModuleSubtype): ModuleConfig {
       return { growthMode: 'grow' };
     case 'eye':
       return { eyeTarget: 'carb', fovDegrees: 90 };
+    case 'membrane_length_sensor':
+      return { threshold: 1, mode: 'above' };
     default:
       return {};
   }
