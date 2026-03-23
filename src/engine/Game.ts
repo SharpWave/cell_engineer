@@ -174,6 +174,22 @@ export function gameLoop(state: GameState): void {
       const cellCountEl = document.getElementById('cell-count');
       if (cellCountEl) cellCountEl.textContent = String(state.cells.length);
 
+      // Update active stats
+      const acEl = document.getElementById('active-cells');
+      if (acEl) acEl.textContent = String(state.cells.length);
+      let extCarbs = 0, extProtein = 0, extWaste = 0;
+      for (const f of state.env.food) {
+        if (f.resourceType === 'carb') extCarbs++;
+        else if (f.resourceType === 'protein') extProtein++;
+        else if (f.resourceType === 'waste') extWaste++;
+      }
+      const ecEl = document.getElementById('active-ext-carbs');
+      const epEl = document.getElementById('active-ext-protein');
+      const ewEl = document.getElementById('active-ext-waste');
+      if (ecEl) ecEl.textContent = String(extCarbs);
+      if (epEl) epEl.textContent = String(extProtein);
+      if (ewEl) ewEl.textContent = String(extWaste);
+
       // Update rolling daily stats
       const rs = state.env.rollingStats;
       const dcs = document.getElementById('daily-carbs-spawned');
@@ -189,18 +205,23 @@ export function gameLoop(state: GameState): void {
       if (dpp) dpp.textContent = String(sumEvents(rs.proteinProduced, now, DAY_CYCLE_MS));
       if (dpc) dpc.textContent = String(proteinConsumed);
 
-      // Autofeeder: set spawn rates to match consumption rates * multiplier
-      const autofeeder = document.getElementById('chk-autofeeder') as HTMLInputElement | null;
-      if (autofeeder?.checked) {
-        const multInput = document.getElementById('input-autofeeder-mult') as HTMLInputElement | null;
+      // Autofeeder: set spawn rates to match consumption rates * multiplier (independent carb/protein)
+      const autoCarb = document.getElementById('chk-autofeeder-carb') as HTMLInputElement | null;
+      if (autoCarb?.checked) {
+        const multInput = document.getElementById('input-autofeeder-carb-mult') as HTMLInputElement | null;
         const mult = Math.max(0, parseFloat(multInput?.value ?? '1') || 1);
         const carbRate = Math.round(carbsConsumed * mult);
-        const proteinRate = Math.round(proteinConsumed * mult);
         state.env.carbSpawnRate = carbRate;
-        state.env.movingProteinSpawnRate = proteinRate;
         const carbInput = document.getElementById('input-carb-rate') as HTMLInputElement | null;
-        const proteinInput = document.getElementById('input-mprotein-rate') as HTMLInputElement | null;
         if (carbInput) carbInput.value = String(carbRate);
+      }
+      const autoProtein = document.getElementById('chk-autofeeder-protein') as HTMLInputElement | null;
+      if (autoProtein?.checked) {
+        const multInput = document.getElementById('input-autofeeder-protein-mult') as HTMLInputElement | null;
+        const mult = Math.max(0, parseFloat(multInput?.value ?? '1') || 1);
+        const proteinRate = Math.round(proteinConsumed * mult);
+        state.env.movingProteinSpawnRate = proteinRate;
+        const proteinInput = document.getElementById('input-mprotein-rate') as HTMLInputElement | null;
         if (proteinInput) proteinInput.value = String(proteinRate);
       }
     }

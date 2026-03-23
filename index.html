@@ -141,10 +141,6 @@
         <span class="stat-value" id="waste-display" style="color:#7a5c3a; font-weight:bold">0</span>
       </div>
       <div class="stat-row">
-        <span class="stat-label">Cells</span>
-        <span class="stat-value" id="cell-count">1</span>
-      </div>
-      <div class="stat-row">
         <span class="stat-label">Growth</span>
         <span class="stat-value" id="growth-display">1.00x</span>
       </div>
@@ -172,12 +168,39 @@
           </span>
         </div>
         <div class="stat-row" style="align-items:center;margin-top:4px">
-          <label class="stat-label" for="chk-autofeeder" style="cursor:pointer">Autofeeder</label>
+          <label class="stat-label" for="chk-autofeeder-carb" style="cursor:pointer">Autofeed Carb</label>
           <span style="display:flex;align-items:center;gap:4px">
-            <input type="checkbox" id="chk-autofeeder" style="cursor:pointer">
-            <input type="number" value="1" step="0.1" id="input-autofeeder-mult" style="width:40px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:right" title="Multiplier">
+            <input type="checkbox" id="chk-autofeeder-carb" style="cursor:pointer">
+            <input type="number" value="1" step="0.1" id="input-autofeeder-carb-mult" style="width:40px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:right" title="Carb multiplier">
             <span class="stat-label" style="font-size:10px">x</span>
           </span>
+        </div>
+        <div class="stat-row" style="align-items:center;margin-top:4px">
+          <label class="stat-label" for="chk-autofeeder-protein" style="cursor:pointer">Autofeed Protein</label>
+          <span style="display:flex;align-items:center;gap:4px">
+            <input type="checkbox" id="chk-autofeeder-protein" style="cursor:pointer">
+            <input type="number" value="1" step="0.1" id="input-autofeeder-protein-mult" style="width:40px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:right" title="Protein multiplier">
+            <span class="stat-label" style="font-size:10px">x</span>
+          </span>
+        </div>
+      </div>
+      <div class="prop-section">
+        <div class="prop-title">Active Stats</div>
+        <div class="stat-row">
+          <span class="stat-label">Cells</span>
+          <span class="stat-value" id="active-cells">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Ext. Carbs</span>
+          <span class="stat-value" id="active-ext-carbs" style="color:#ffd700">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Ext. Protein</span>
+          <span class="stat-value" id="active-ext-protein" style="color:#4a8aff">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Ext. Waste</span>
+          <span class="stat-value" id="active-ext-waste" style="color:#7a5c3a">0</span>
         </div>
       </div>
       <div class="prop-section">
