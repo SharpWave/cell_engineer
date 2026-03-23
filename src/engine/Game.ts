@@ -8,9 +8,18 @@ import { LightCycle, createLightCycle } from '../simulation/LightCycle';
 import { updateHUD, updateInspector } from '../ui/HUD';
 import { SelectionState, createSelectionState, handleClick } from '../ui/Selection';
 import { createFoodParticle } from '../simulation/Food';
+import { CellModule, SignalCascade } from '../creature/Module';
+import { CellProperties } from '../creature/CellProperties';
 
 const WORLD_WIDTH = 2000;
 const WORLD_HEIGHT = 1500;
+
+export interface CellBlueprint {
+  name: string;
+  modules: CellModule[];
+  cascades: SignalCascade[];
+  properties: Partial<CellProperties>;
+}
 
 export interface GameState {
   physics: PhysicsWorld;
@@ -26,7 +35,7 @@ export interface GameState {
   focusedCellIndex: number;
 }
 
-export function initGame(canvas: HTMLCanvasElement): GameState {
+export function initGame(canvas: HTMLCanvasElement, blueprint?: CellBlueprint): GameState {
   const ctx = canvas.getContext('2d')!;
 
   resizeCanvas(canvas);
@@ -34,7 +43,10 @@ export function initGame(canvas: HTMLCanvasElement): GameState {
   const now = performance.now();
   const physics = createPhysicsWorld(WORLD_WIDTH, WORLD_HEIGHT);
   const camera = createCamera(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-  const cell = createCell(physics.world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+  const cell = blueprint
+    ? createCell(physics.world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2,
+        blueprint.properties, blueprint.modules, blueprint.cascades)
+    : createCell(physics.world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
   const env = createEnvironment(WORLD_WIDTH, WORLD_HEIGHT);
   const lightCycle = createLightCycle(now);
   const selection = createSelectionState();
@@ -142,10 +154,9 @@ export function gameLoop(state: GameState): void {
       );
     }
 
-    // Camera follows focused cell
-    if (state.focusedCellIndex >= 0 && state.focusedCellIndex < state.cells.length) {
-      const focusedCell = state.cells[state.focusedCellIndex];
-      const center = getCellCenter(focusedCell);
+    // Camera follows selected cell only when one is actively selected
+    if (state.selection.current?.type === 'cell') {
+      const center = getCellCenter(state.selection.current.cell);
       state.camera.x += (center.x - state.camera.x) * 0.05;
       state.camera.y += (center.y - state.camera.y) * 0.05;
     }
