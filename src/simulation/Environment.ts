@@ -18,6 +18,12 @@ import {
 const ABSORB_DELAY = 1000;
 const MAX_STATIONARY_PROTEIN = 10;
 
+/** How long two waste particles must stay close before merging (ms) */
+const WASTE_MERGE_DELAY = 3000;
+const WASTE_MERGE_DIST = 14;
+/** Track how long pairs of waste particles have been in contact */
+const wasteTouchTimers = new Map<string, number>();
+
 /** 1 carb per module per day cycle (120,000 ms) */
 export const DAY_CYCLE_MS = 120_000;
 const MAINTENANCE_RATE = 1 / DAY_CYCLE_MS; // per module per ms
@@ -343,28 +349,52 @@ export function updateEnvironment(
     // Apply stiffness modulation
     applyCellStiffness(cell, effects.rigidityActive, effects.flexibilityActive);
 
-    // Foot: pull cell toward foot's membrane direction
+    // --- Locomotion fuel: 1 carb per second per active foot/shaker ---
+    let activeLocomotors = 0;
     for (const mod of cell.modules) {
-      if (mod.subtype !== 'foot' || !mod.active) continue;
-      const mp = cell.membraneParticles[mod.membraneIndex];
-      if (!mp) continue;
-      const dx = mp.position.x - center.x;
-      const dy = mp.position.y - center.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 1) continue;
-      const mass = getCellMass(cell);
-      const FOOT_FORCE = 0.0015 / Math.max(1, mass * 0.02);
-      const nx = dx / dist;
-      const ny = dy / dist;
-      for (const p of cell.membraneParticles) {
-        Matter.Body.applyForce(p, p.position, { x: nx * FOOT_FORCE, y: ny * FOOT_FORCE });
+      if ((mod.subtype === 'foot' || mod.subtype === 'shaker') && mod.active) {
+        activeLocomotors++;
+      }
+    }
+    let locomotionFueled = activeLocomotors > 0 && cell.energy.carbs > 0;
+    if (activeLocomotors > 0) {
+      // 1 carb per locomotor per 1000ms
+      cell.energy.locomotionAccumulator += delta * activeLocomotors / 1000;
+      while (cell.energy.locomotionAccumulator >= 1) {
+        cell.energy.locomotionAccumulator -= 1;
+        if (!spendCarbs(cell.energy, 1)) {
+          locomotionFueled = false;
+          cell.energy.locomotionAccumulator = 0;
+          break;
+        }
+        addWaste(cell.energy, 1);
       }
     }
 
-    // Shaker: oscillate membrane particles for random-walk motion (mass-scaled)
-    if (effects.shakerActive) {
+    // Foot: pull cell toward foot's membrane direction (only if fueled)
+    if (locomotionFueled) {
+      for (const mod of cell.modules) {
+        if (mod.subtype !== 'foot' || !mod.active) continue;
+        const mp = cell.membraneParticles[mod.membraneIndex];
+        if (!mp) continue;
+        const dx = mp.position.x - center.x;
+        const dy = mp.position.y - center.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 1) continue;
+        const mass = getCellMass(cell);
+        const FOOT_FORCE = 0.0015 / Math.max(1, mass * 0.02);
+        const nx = dx / dist;
+        const ny = dy / dist;
+        for (const p of cell.membraneParticles) {
+          Matter.Body.applyForce(p, p.position, { x: nx * FOOT_FORCE, y: ny * FOOT_FORCE });
+        }
+      }
+    }
+
+    // Shaker: oscillate membrane particles for random-walk motion (only if fueled, 10x force)
+    if (effects.shakerActive && locomotionFueled) {
       const mass = getCellMass(cell);
-      const SHAKE_FORCE = 0.004 / Math.max(1, mass * 0.02);
+      const SHAKE_FORCE = 0.04 / Math.max(1, mass * 0.02);
       for (const p of cell.membraneParticles) {
         Matter.Body.applyForce(p, p.position, {
           x: (Math.random() - 0.5) * SHAKE_FORCE,
@@ -373,9 +403,8 @@ export function updateEnvironment(
       }
     }
 
-    // --- Module maintenance: 1 carb per module per day (shaker costs 4x) ---
-    const maintenanceUnits = cell.modules.reduce((sum, m) =>
-      sum + (m.subtype === 'shaker' ? 4 : 1), 0);
+    // --- Module maintenance: 1 carb per module per day ---
+    const maintenanceUnits = cell.modules.length;
     if (maintenanceUnits > 0) {
       cell.energy.maintenanceAccumulator += delta * maintenanceUnits * MAINTENANCE_RATE;
       while (cell.energy.maintenanceAccumulator >= 1) {
@@ -383,9 +412,8 @@ export function updateEnvironment(
         if (spendCarbs(cell.energy, 1)) {
           cell.lastMaintenanceTick = now;
           addWaste(cell.energy, 1);
-        } else {
-          killModule(cell);
         }
+        // No module destruction on failure — cell just can't pay
       }
     }
 
@@ -573,6 +601,56 @@ export function updateEnvironment(
     }
   }
 
+  // --- Waste merging: combine nearby waste particles after sustained contact ---
+  const mergedSet = new Set<FoodParticle>();
+  const activePairs = new Set<string>();
+  for (let i = 0; i < wasteParticles.length; i++) {
+    const wa = wasteParticles[i];
+    if (mergedSet.has(wa)) continue;
+    for (let j = i + 1; j < wasteParticles.length; j++) {
+      const wb = wasteParticles[j];
+      if (mergedSet.has(wb)) continue;
+      const dx = wb.body.position.x - wa.body.position.x;
+      const dy = wb.body.position.y - wa.body.position.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const pairKey = wa.body.id < wb.body.id
+        ? `${wa.body.id}_${wb.body.id}`
+        : `${wb.body.id}_${wa.body.id}`;
+
+      if (dist < WASTE_MERGE_DIST) {
+        activePairs.add(pairKey);
+        const firstTouch = wasteTouchTimers.get(pairKey);
+        if (firstTouch === undefined) {
+          wasteTouchTimers.set(pairKey, now);
+        } else if (now - firstTouch >= WASTE_MERGE_DELAY) {
+          // Merge: conserve mass (resourceValue) and circumference (2πr)
+          const totalValue = wa.resourceValue + wb.resourceValue;
+          const rA = (wa.body as any).circleRadius || 7;
+          const rB = (wb.body as any).circleRadius || 7;
+          const mergedRadius = rA + rB;
+          const mx = (wa.body.position.x + wb.body.position.x) / 2;
+          const my = (wa.body.position.y + wb.body.position.y) / 2;
+
+          removeFood(world, wa);
+          removeFood(world, wb);
+          mergedSet.add(wa);
+          mergedSet.add(wb);
+
+          const merged = createFoodParticle(world, mx, my, 'waste', false, mergedRadius, totalValue);
+          env.food.push(merged);
+          wasteTouchTimers.delete(pairKey);
+          break; // wa is gone, move to next i
+        }
+      } else {
+        wasteTouchTimers.delete(pairKey);
+      }
+    }
+  }
+  // Clean up stale timer entries
+  for (const key of wasteTouchTimers.keys()) {
+    if (!activePairs.has(key)) wasteTouchTimers.delete(key);
+  }
+
   // --- Sliding food: push toward target membrane particle, stick when close ---
   const SLIDE_FORCE = 0.0004;
   const SLIDE_STICK_DIST = 14;
@@ -663,21 +741,3 @@ export function updateEnvironment(
   }
 }
 
-/** Kill the last non-starter module on a cell due to maintenance failure */
-function killModule(cell: Cell): void {
-  // Kill from the end — last-added modules die first
-  // Protect starter modules (carb chain + protein chain + growth = 7)
-  for (let i = cell.modules.length - 1; i >= 7; i--) {
-    const mod = cell.modules[i];
-    cell.cascades = cell.cascades.filter(c => c.fromId !== mod.id && c.toId !== mod.id);
-    cell.modules.splice(i, 1);
-    updateFingerprint(cell);
-    return;
-  }
-  // If only starter modules left, kill even those
-  if (cell.modules.length > 0) {
-    const mod = cell.modules.pop()!;
-    cell.cascades = cell.cascades.filter(c => c.fromId !== mod.id && c.toId !== mod.id);
-    updateFingerprint(cell);
-  }
-}

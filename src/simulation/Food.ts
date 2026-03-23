@@ -30,9 +30,11 @@ export function createFoodParticle(
   y: number,
   resourceType: FoodResourceType = 'carb',
   stationary: boolean = false,
+  radius?: number,
+  resourceValue: number = 1,
 ): FoodParticle {
   const shape: FoodShape = Math.random() > 0.5 ? 'circle' : 'triangle';
-  const radius = 5 + Math.random() * 5;
+  if (radius === undefined) radius = 5 + Math.random() * 5;
   const colors = resourceType === 'carb' ? CARB_COLORS
     : resourceType === 'protein' ? PROTEIN_COLORS
     : WASTE_COLORS;
@@ -81,7 +83,7 @@ export function createFoodParticle(
     shape,
     color,
     resourceType,
-    resourceValue: 1,
+    resourceValue,
     stuck: false,
     stuckTime: 0,
     stuckConstraint: null,

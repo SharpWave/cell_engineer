@@ -23,13 +23,15 @@ export interface EnergyState {
   waste: number;
   /** Accumulates fractional maintenance ticks */
   maintenanceAccumulator: number;
+  /** Accumulates fractional locomotion fuel ticks (feet + shakers) */
+  locomotionAccumulator: number;
   particles: InternalParticle[];
   /** Tracked membrane rotation angle for co-rotating internal particles */
   lastMembraneAngle: number;
 }
 
 export function createEnergyState(): EnergyState {
-  return { carbs: 0, protein: 0, waste: 0, maintenanceAccumulator: 0, particles: [], lastMembraneAngle: 0 };
+  return { carbs: 0, protein: 0, waste: 0, maintenanceAccumulator: 0, locomotionAccumulator: 0, particles: [], lastMembraneAngle: 0 };
 }
 
 export function addCarbs(state: EnergyState, amount: number): void {
