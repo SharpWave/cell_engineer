@@ -249,10 +249,21 @@ export function buildEngineeringPanel(
     if (!from || !to) continue;
     const row = document.createElement('div');
     row.className = 'stat-row';
+    const arrow = cas.mode === 'inhibitory' ? '&#x22A3;' : '&rarr;';
+    const color = cas.mode === 'inhibitory' ? '#ff6666' : '#c8c8d4';
     row.innerHTML = `
       <span class="stat-label" style="font-size:11px">${getModuleDisplayLabel(from)}</span>
-      <span class="stat-value" style="font-size:11px">&rarr; ${getModuleDisplayLabel(to)}</span>
+      <span class="stat-value" style="font-size:11px;color:${color}">${arrow} ${getModuleDisplayLabel(to)}</span>
     `;
+    // Delete button
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'x';
+    delBtn.style.cssText = 'margin-left:4px;padding:0 4px;font-size:10px;background:#1e1e3a;color:#ff6666;border:1px solid #3a3a5a;border-radius:3px;cursor:pointer;font-family:monospace';
+    delBtn.addEventListener('click', () => {
+      cell.cascades = cell.cascades.filter(c => c.id !== cas.id);
+      buildEngineeringPanel(container, cell, selection);
+    });
+    row.appendChild(delBtn);
     casSection.appendChild(row);
   }
 
@@ -276,6 +287,18 @@ export function buildEngineeringPanel(
     fromSelect.addEventListener('change', () => { if (selection) selection.highlightedModuleId = fromSelect.value; });
     fromSelect.addEventListener('blur', () => { if (selection) selection.highlightedModuleId = null; });
 
+    const modeSelect = document.createElement('select');
+    modeSelect.className = 'eng-select';
+    modeSelect.style.maxWidth = '70px';
+    const exOpt = document.createElement('option');
+    exOpt.value = 'excitatory';
+    exOpt.textContent = '→ excite';
+    modeSelect.appendChild(exOpt);
+    const inhOpt = document.createElement('option');
+    inhOpt.value = 'inhibitory';
+    inhOpt.textContent = '⊣ inhibit';
+    modeSelect.appendChild(inhOpt);
+
     const toSelect = document.createElement('select');
     toSelect.className = 'eng-select';
     for (const t of targets) {
@@ -294,19 +317,16 @@ export function buildEngineeringPanel(
     linkBtn.addEventListener('click', () => {
       const fromId = fromSelect.value;
       const toId = toSelect.value;
-      const exists = cell.cascades.some(c => c.fromId === fromId && c.toId === toId);
+      const mode = modeSelect.value as 'excitatory' | 'inhibitory';
+      const exists = cell.cascades.some(c => c.fromId === fromId && c.toId === toId && c.mode === mode);
       if (!exists && spendProtein(cell.energy, 1)) {
-        cell.cascades.push(createCascade(fromId, toId));
+        cell.cascades.push(createCascade(fromId, toId, mode));
         buildEngineeringPanel(container, cell, selection);
       }
     });
 
-    const arrowSpan = document.createElement('span');
-    arrowSpan.textContent = ' → ';
-    arrowSpan.style.color = '#8888a8';
-
     connectRow.appendChild(fromSelect);
-    connectRow.appendChild(arrowSpan);
+    connectRow.appendChild(modeSelect);
     connectRow.appendChild(toSelect);
     connectRow.appendChild(document.createElement('br'));
     connectRow.appendChild(linkBtn);

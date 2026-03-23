@@ -67,6 +67,7 @@ export interface SignalCascade {
   id: string;
   fromId: string;
   toId: string;
+  mode: 'excitatory' | 'inhibitory';
 }
 
 // --- Context & Effects ---
@@ -247,8 +248,8 @@ export function createModule(subtype: ModuleSubtype, membraneIndex: number, conf
   };
 }
 
-export function createCascade(fromId: string, toId: string): SignalCascade {
-  return { id: `cas_${nextId++}`, fromId, toId };
+export function createCascade(fromId: string, toId: string, mode: 'excitatory' | 'inhibitory' = 'excitatory'): SignalCascade {
+  return { id: `cas_${nextId++}`, fromId, toId, mode };
 }
 
 // --- Update logic ---
@@ -305,11 +306,29 @@ export function updateModules(
     }
   }
 
-  // Propagate cascades (single pass)
+  // Propagate cascades: inhibitory takes precedence over excitatory
+  // First pass: collect excitation and inhibition per target
+  const excited = new Set<string>();
+  const inhibited = new Set<string>();
   for (const c of cascades) {
     const from = modules.find(m => m.id === c.fromId);
-    const to = modules.find(m => m.id === c.toId);
-    if (from?.active && to) to.active = true;
+    if (!from?.active) continue;
+    if (c.mode === 'inhibitory') {
+      inhibited.add(c.toId);
+    } else {
+      excited.add(c.toId);
+    }
+  }
+  // Second pass: activate excited targets that aren't inhibited
+  for (const id of excited) {
+    if (inhibited.has(id)) continue;
+    const to = modules.find(m => m.id === id);
+    if (to) to.active = true;
+  }
+  // Third pass: force-deactivate inhibited targets (overrides always-on)
+  for (const id of inhibited) {
+    const to = modules.find(m => m.id === id);
+    if (to) to.active = false;
   }
 
   // Collect effects

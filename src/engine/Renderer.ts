@@ -81,11 +81,12 @@ export function render(
     // Internal particles (energy + waste)
     drawInternalParticles(ctx, cell);
 
-    // Modules on membrane
-    drawModules(ctx, cell, now, selection);
-
-    // Cascade connections
-    drawCascades(ctx, cell);
+    // Modules on membrane (togglable)
+    const hideModules = (document.getElementById('chk-hide-modules') as HTMLInputElement | null)?.checked;
+    if (!hideModules) {
+      drawModules(ctx, cell, now, selection);
+      drawCascades(ctx, cell);
+    }
   }
 
   // -- Overlay UI (screen-space) --
@@ -589,28 +590,42 @@ function drawCascades(ctx: CanvasRenderingContext2D, cell: Cell): void {
     const cpY = center.y + (mDy / mDist) * (fdist + 35);
 
     const active = fromMod.active;
+    const isInhibitory = cascade.mode === 'inhibitory';
 
     ctx.beginPath();
     ctx.moveTo(fx, fy);
     ctx.quadraticCurveTo(cpX, cpY, tx, ty);
-    ctx.strokeStyle = active ? '#ffcc4a' : '#444455';
+    if (isInhibitory) {
+      ctx.strokeStyle = active ? '#ff5555' : '#553333';
+    } else {
+      ctx.strokeStyle = active ? '#ffcc4a' : '#444455';
+    }
     ctx.lineWidth = active ? 2.5 : 1.5;
     ctx.setLineDash(active ? [] : [4, 4]);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Arrow head at target
+    // End marker at target
     const arrowLen = 6;
     const adx = tx - cpX, ady = ty - cpY;
     const aDist = Math.sqrt(adx * adx + ady * ady);
     if (aDist > 0) {
       const anx = adx / aDist, any_ = ady / aDist;
-      ctx.beginPath();
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(tx - anx * arrowLen + any_ * arrowLen * 0.5, ty - any_ * arrowLen - anx * arrowLen * 0.5);
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(tx - anx * arrowLen - any_ * arrowLen * 0.5, ty - any_ * arrowLen + anx * arrowLen * 0.5);
-      ctx.stroke();
+      if (isInhibitory) {
+        // Flat bar (⊣) for inhibitory
+        ctx.beginPath();
+        ctx.moveTo(tx + any_ * arrowLen, ty - anx * arrowLen);
+        ctx.lineTo(tx - any_ * arrowLen, ty + anx * arrowLen);
+        ctx.stroke();
+      } else {
+        // Arrow head for excitatory
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(tx - anx * arrowLen + any_ * arrowLen * 0.5, ty - any_ * arrowLen - anx * arrowLen * 0.5);
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(tx - anx * arrowLen - any_ * arrowLen * 0.5, ty - any_ * arrowLen + anx * arrowLen * 0.5);
+        ctx.stroke();
+      }
     }
   }
 }

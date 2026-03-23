@@ -24,10 +24,12 @@ export interface EnergyState {
   /** Accumulates fractional maintenance ticks */
   maintenanceAccumulator: number;
   particles: InternalParticle[];
+  /** Tracked membrane rotation angle for co-rotating internal particles */
+  lastMembraneAngle: number;
 }
 
 export function createEnergyState(): EnergyState {
-  return { carbs: 0, protein: 0, waste: 0, maintenanceAccumulator: 0, particles: [] };
+  return { carbs: 0, protein: 0, waste: 0, maintenanceAccumulator: 0, particles: [], lastMembraneAngle: 0 };
 }
 
 export function addCarbs(state: EnergyState, amount: number): void {
@@ -259,6 +261,28 @@ export function updateParticles(
     y: p.y - cellCenter.y,
   }));
   const n = poly.length;
+
+  // Co-rotate internal particles with membrane rotation
+  if (n > 0) {
+    const currentAngle = Math.atan2(poly[0].y, poly[0].x);
+    const deltaAngle = currentAngle - state.lastMembraneAngle;
+    state.lastMembraneAngle = currentAngle;
+    // Only rotate if delta is small (skip large jumps from init or mitosis)
+    if (Math.abs(deltaAngle) < 0.5) {
+      const cos = Math.cos(deltaAngle);
+      const sin = Math.sin(deltaAngle);
+      for (const p of state.particles) {
+        const rx = p.x * cos - p.y * sin;
+        const ry = p.x * sin + p.y * cos;
+        p.x = rx;
+        p.y = ry;
+        const rvx = p.vx * cos - p.vy * sin;
+        const rvy = p.vx * sin + p.vy * cos;
+        p.vx = rvx;
+        p.vy = rvy;
+      }
+    }
+  }
 
   let expelledWaste = 0;
   let expelledCarbs = 0;
