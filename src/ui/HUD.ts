@@ -13,6 +13,17 @@ export function updateHUD(energy: EnergyState, cell: Cell): void {
   if (proteinEl) proteinEl.textContent = String(energy.protein);
   if (wasteEl) wasteEl.textContent = String(energy.waste);
   if (growthEl) growthEl.textContent = cell.properties.growthScale.toFixed(2) + 'x';
+
+  // Mitosis progress (only visible when active)
+  const mitosisEl = document.getElementById('mitosis-progress');
+  if (mitosisEl) {
+    if (cell.mitosisState && cell.mitosisState.modulesBuilt < cell.mitosisState.modulesRequired) {
+      mitosisEl.textContent = `${cell.mitosisState.modulesBuilt} / ${cell.mitosisState.modulesRequired} modules`;
+      mitosisEl.parentElement!.style.display = '';
+    } else {
+      mitosisEl.parentElement!.style.display = 'none';
+    }
+  }
 }
 
 // Track what the panel was last built for so we don't rebuild every frame

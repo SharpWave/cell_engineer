@@ -39,6 +39,12 @@ export interface MitosisState {
   progress: number;
   duration: number;
   axis: number;
+  /** Number of module copies built so far (each costs protein) */
+  modulesBuilt: number;
+  /** Total number of module copies needed before division */
+  modulesRequired: number;
+  /** Accumulator for gradual module building (same pace as growth) */
+  buildAccumulator: number;
 }
 
 const MITOSIS_DURATION = 3000;
@@ -254,23 +260,30 @@ export function mitosisProteinCost(cell: Cell): number {
   return cell.modules.reduce((sum, m) => sum + MODULE_CATALOG[m.subtype].cost, 0);
 }
 
-/** Begin the mitosis process on a cell (checks cooldown + protein) */
+/** Begin the mitosis process on a cell (checks cooldown only — protein spent gradually) */
 export function startMitosis(cell: Cell, now: number): void {
   if (cell.mitosisState) return;
   if (now < cell.mitosisCooldownUntil) return;
-  const cost = mitosisProteinCost(cell);
-  if (cell.energy.protein < cost) return; // Not enough protein to replicate modules
   cell.mitosisState = {
     startTime: now,
     progress: 0,
     duration: MITOSIS_DURATION,
     axis: Math.random() * Math.PI,
+    modulesBuilt: 0,
+    modulesRequired: mitosisProteinCost(cell), // total protein needed (1 per protein cost unit)
+    buildAccumulator: 0,
   };
 }
 
-/** Update mitosis animation. Returns true when division is complete. */
+/** Update mitosis animation. Returns true when division is complete.
+ *  Animation only plays once all modules are built. */
 export function updateMitosis(cell: Cell, now: number): boolean {
   if (!cell.mitosisState) return false;
+  // Don't start the division animation until all modules are built
+  if (cell.mitosisState.modulesBuilt < cell.mitosisState.modulesRequired) {
+    cell.mitosisState.progress = 0;
+    return false;
+  }
   cell.mitosisState.progress = Math.min(1, (now - cell.mitosisState.startTime) / cell.mitosisState.duration);
   return cell.mitosisState.progress >= 1;
 }
@@ -280,9 +293,7 @@ export function completeMitosis(cell: Cell, world: Matter.World): Cell {
   const center = getCellCenter(cell);
   const axis = cell.mitosisState?.axis ?? 0;
 
-  // Consume protein to replicate modules
-  const replicationCost = mitosisProteinCost(cell);
-  spendProtein(cell.energy, replicationCost);
+  // Protein was already spent gradually during module building phase
 
   // Split remaining resources between parent and daughter (by type)
   const daughterEnergy = createEnergyState();
@@ -309,9 +320,21 @@ export function completeMitosis(cell: Cell, world: Matter.World): Cell {
     }
   }
 
-  // Clear sliding state — both cells have new membrane geometry
-  for (const p of parentKeep) p.slidingToVertex = null;
-  for (const p of daughterGet) p.slidingToVertex = null;
+  // Clear sliding state and scale positions to fit the half-size membrane
+  for (const p of parentKeep) {
+    p.slidingToVertex = null;
+    p.x *= 0.5;
+    p.y *= 0.5;
+    p.vx *= 0.5;
+    p.vy *= 0.5;
+  }
+  for (const p of daughterGet) {
+    p.slidingToVertex = null;
+    p.x *= 0.5;
+    p.y *= 0.5;
+    p.vx *= 0.5;
+    p.vy *= 0.5;
+  }
 
   cell.energy.particles = parentKeep;
   daughterEnergy.particles = daughterGet;

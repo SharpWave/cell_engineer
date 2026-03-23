@@ -445,6 +445,24 @@ export function updateEnvironment(
     }
 
     if (cell.mitosisState) {
+      // Gradually build module copies at the same pace as growth
+      const ms = cell.mitosisState;
+      if (ms.modulesBuilt < ms.modulesRequired && effects.mitosisTriggered) {
+        ms.buildAccumulator += delta * GROWTH_PROTEIN_RATE;
+        while (ms.buildAccumulator >= 1 && ms.modulesBuilt < ms.modulesRequired) {
+          ms.buildAccumulator -= 1;
+          if (spendProtein(cell.energy, 1)) {
+            ms.modulesBuilt++;
+          } else {
+            break; // no protein available, try again next tick
+          }
+        }
+        // Once all modules built, reset startTime so the division animation plays from now
+        if (ms.modulesBuilt >= ms.modulesRequired) {
+          ms.startTime = now;
+        }
+      }
+
       const done = updateMitosis(cell, now);
       if (done) {
         const daughter = completeMitosis(cell, world);
