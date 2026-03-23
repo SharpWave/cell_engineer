@@ -11,12 +11,14 @@ const BG_DARK = [16, 16, 30];
 const BG_BRIGHT = [30, 32, 58];
 
 const CELL_FILL = '#0a0a0a';
-const CELL_STROKE = '#e8a888';
-const CELL_STROKE_WIDTH = 4;
+const CELL_STROKE = '#ffffff';
+const CELL_OUTLINE = '#000000';
+const CELL_STROKE_WIDTH = 3;
+const CELL_OUTLINE_WIDTH = 7;
 const SELECTION_COLOR = '#ffffff';
 
-const CARB_COLOR = '#ffd700';
-const CARB_GLOW = 'rgba(255, 215, 0, 0.25)';
+const CARB_COLOR = '#44ff66';
+const CARB_GLOW = 'rgba(68, 255, 102, 0.25)';
 const PROTEIN_COLOR = '#4a8aff';
 const PROTEIN_GLOW = 'rgba(74, 138, 255, 0.25)';
 const WASTE_COLOR = '#e07030';
@@ -233,36 +235,48 @@ function drawCell(ctx: CanvasRenderingContext2D, cell: Cell, selected: boolean, 
   let strokeColor = CELL_STROKE;
   if (cell.lastMaintenanceTick > 0 && flashAge < FLASH_DURATION) {
     const t = 1 - flashAge / FLASH_DURATION;
-    const r = Math.round(42 + (255 - 42) * t);
-    const g = Math.round(42 - 42 * t);
-    const b = Math.round(60 - 60 * t);
+    const r = 255;
+    const g = Math.round(255 - 255 * t);
+    const b = Math.round(255 - 255 * t);
     strokeColor = `rgb(${r},${g},${b})`;
   }
 
-  ctx.fillStyle = CELL_FILL;
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = CELL_STROKE_WIDTH;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  ctx.beginPath();
+  // Build the spline path once
   const n = points.length;
-  for (let i = 0; i < n; i++) {
-    const p0 = points[(i - 1 + n) % n];
-    const p1 = points[i];
-    const p2 = points[(i + 1) % n];
-    const p3 = points[(i + 2) % n];
+  function traceSpline() {
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const p0 = points[(i - 1 + n) % n];
+      const p1 = points[i];
+      const p2 = points[(i + 1) % n];
+      const p3 = points[(i + 2) % n];
 
-    if (i === 0) ctx.moveTo(p1.x, p1.y);
+      if (i === 0) ctx.moveTo(p1.x, p1.y);
 
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+    }
+    ctx.closePath();
   }
-  ctx.closePath();
+
+  // Black outline (wider)
+  traceSpline();
+  ctx.fillStyle = CELL_FILL;
+  ctx.strokeStyle = CELL_OUTLINE;
+  ctx.lineWidth = CELL_OUTLINE_WIDTH;
   ctx.fill();
+  ctx.stroke();
+
+  // White stroke on top
+  traceSpline();
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = CELL_STROKE_WIDTH;
   ctx.stroke();
 }
 
@@ -334,30 +348,41 @@ function drawMitosisCell(ctx: CanvasRenderingContext2D, cell: Cell, selected: bo
   ctx.restore();
 
   // Draw the pinched cell body
-  ctx.fillStyle = CELL_FILL;
-  ctx.strokeStyle = CELL_STROKE;
-  ctx.lineWidth = CELL_STROKE_WIDTH;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  ctx.beginPath();
   const n = modifiedPoints.length;
-  for (let i = 0; i < n; i++) {
-    const p0 = modifiedPoints[(i - 1 + n) % n];
-    const p1 = modifiedPoints[i];
-    const p2 = modifiedPoints[(i + 1) % n];
-    const p3 = modifiedPoints[(i + 2) % n];
+  function traceMitosisSpline() {
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const p0 = modifiedPoints[(i - 1 + n) % n];
+      const p1 = modifiedPoints[i];
+      const p2 = modifiedPoints[(i + 1) % n];
+      const p3 = modifiedPoints[(i + 2) % n];
 
-    if (i === 0) ctx.moveTo(p1.x, p1.y);
+      if (i === 0) ctx.moveTo(p1.x, p1.y);
 
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+    }
+    ctx.closePath();
   }
-  ctx.closePath();
+
+  // Black outline (wider)
+  traceMitosisSpline();
+  ctx.fillStyle = CELL_FILL;
+  ctx.strokeStyle = CELL_OUTLINE;
+  ctx.lineWidth = CELL_OUTLINE_WIDTH;
   ctx.fill();
+  ctx.stroke();
+
+  // White stroke on top
+  traceMitosisSpline();
+  ctx.strokeStyle = CELL_STROKE;
+  ctx.lineWidth = CELL_STROKE_WIDTH;
   ctx.stroke();
 }
 

@@ -52,7 +52,7 @@ export function updateInspector(selection: SelectionState): void {
         el.innerHTML = '<span class="inspector-empty">This food has been absorbed.</span>';
       } else {
         const status = food.stuck ? 'Stuck (absorbing...)' : (food.stationary ? 'Stationary' : 'Drifting');
-        const resColor = food.resourceType === 'carb' ? '#ffd700' : '#4a8aff';
+        const resColor = food.resourceType === 'carb' ? '#44ff66' : '#4a8aff';
         el.innerHTML = `
           <div class="prop-title">Food Particle</div>
           <div class="stat-row"><span class="stat-label">Type</span><span class="stat-value" style="color:${resColor}">${food.resourceType === 'carb' ? 'Carb' : 'Protein'}</span></div>

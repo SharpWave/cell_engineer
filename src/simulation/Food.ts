@@ -19,7 +19,7 @@ export interface FoodParticle {
   slidingToward: { cellId: number; targetBody: Matter.Body } | null;
 }
 
-const CARB_COLORS = ['#ffd700', '#ffb300', '#ffe066'];
+const CARB_COLORS = ['#44ff66', '#22ff44', '#66ff88'];
 const PROTEIN_COLORS = ['#4a8aff', '#00b0ff', '#7c4dff'];
 const WASTE_COLORS = ['#7a5c3a', '#6b4e2e', '#8a6a42'];
 const FOOD_COLLISION_CATEGORY = 0x0004;

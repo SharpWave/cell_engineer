@@ -11,8 +11,8 @@ import { createFoodParticle } from '../simulation/Food';
 import { CellModule, SignalCascade } from '../creature/Module';
 import { CellProperties } from '../creature/CellProperties';
 
-const WORLD_WIDTH = 2000;
-const WORLD_HEIGHT = 1500;
+const WORLD_WIDTH = 4000;
+const WORLD_HEIGHT = 3000;
 
 export interface CellBlueprint {
   name: string;
