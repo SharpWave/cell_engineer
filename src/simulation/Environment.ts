@@ -358,8 +358,8 @@ export function updateEnvironment(
     }
     let locomotionFueled = activeLocomotors > 0 && cell.energy.carbs > 0;
     if (activeLocomotors > 0) {
-      // 1 carb per locomotor per 1000ms
-      cell.energy.locomotionAccumulator += delta * activeLocomotors / 1000;
+      // 1 carb per locomotor per 4000ms
+      cell.energy.locomotionAccumulator += delta * activeLocomotors / 4000;
       while (cell.energy.locomotionAccumulator >= 1) {
         cell.energy.locomotionAccumulator -= 1;
         if (!spendCarbs(cell.energy, 1)) {
@@ -572,8 +572,6 @@ export function updateEnvironment(
   const wasteParticles = env.food.filter(f => f.resourceType === 'waste' && !f.absorbed && !f.stuck);
   const WASTE_ATTRACT_RANGE = 80;
   const WASTE_ATTRACT_FORCE = 0.000015;
-  const WASTE_MIN_SEP = 10; // roughly 2x particle radius
-  const WASTE_REPEL_FORCE = 0.00005;
   for (let i = 0; i < wasteParticles.length; i++) {
     const a = wasteParticles[i].body;
     for (let j = i + 1; j < wasteParticles.length; j++) {
@@ -587,17 +585,10 @@ export function updateEnvironment(
       const nx = dx / dist;
       const ny = dy / dist;
 
-      if (dist < WASTE_MIN_SEP) {
-        // Hard separation — prevent overlap
-        const push = (WASTE_MIN_SEP - dist) * WASTE_REPEL_FORCE;
-        Matter.Body.applyForce(a, a.position, { x: -nx * push, y: -ny * push });
-        Matter.Body.applyForce(b, b.position, { x: nx * push, y: ny * push });
-      } else {
-        // Attraction
-        const f = WASTE_ATTRACT_FORCE * (1 - dist / WASTE_ATTRACT_RANGE);
-        Matter.Body.applyForce(a, a.position, { x: nx * f, y: ny * f });
-        Matter.Body.applyForce(b, b.position, { x: -nx * f, y: -ny * f });
-      }
+      // Attraction only — no repulsion, let them clump and merge
+      const f = WASTE_ATTRACT_FORCE * (1 - dist / WASTE_ATTRACT_RANGE);
+      Matter.Body.applyForce(a, a.position, { x: nx * f, y: ny * f });
+      Matter.Body.applyForce(b, b.position, { x: -nx * f, y: -ny * f });
     }
   }
 
@@ -607,27 +598,29 @@ export function updateEnvironment(
   for (let i = 0; i < wasteParticles.length; i++) {
     const wa = wasteParticles[i];
     if (mergedSet.has(wa)) continue;
+    const rA = (wa.body as any).circleRadius || 7;
     for (let j = i + 1; j < wasteParticles.length; j++) {
       const wb = wasteParticles[j];
       if (mergedSet.has(wb)) continue;
+      const rB = (wb.body as any).circleRadius || 7;
       const dx = wb.body.position.x - wa.body.position.x;
       const dy = wb.body.position.y - wa.body.position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
+      // Touching when center distance < sum of radii + small margin
+      const touchDist = rA + rB + 4;
       const pairKey = wa.body.id < wb.body.id
         ? `${wa.body.id}_${wb.body.id}`
         : `${wb.body.id}_${wa.body.id}`;
 
-      if (dist < WASTE_MERGE_DIST) {
+      if (dist < touchDist) {
         activePairs.add(pairKey);
         const firstTouch = wasteTouchTimers.get(pairKey);
         if (firstTouch === undefined) {
           wasteTouchTimers.set(pairKey, now);
         } else if (now - firstTouch >= WASTE_MERGE_DELAY) {
-          // Merge: conserve mass (resourceValue) and circumference (2πr)
+          // Merge: conserve mass (resourceValue) and area (πr² → r = √(rA² + rB²))
           const totalValue = wa.resourceValue + wb.resourceValue;
-          const rA = (wa.body as any).circleRadius || 7;
-          const rB = (wb.body as any).circleRadius || 7;
-          const mergedRadius = rA + rB;
+          const mergedRadius = Math.sqrt(rA * rA + rB * rB);
           const mx = (wa.body.position.x + wb.body.position.x) / 2;
           const my = (wa.body.position.y + wb.body.position.y) / 2;
 

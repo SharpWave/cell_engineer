@@ -278,11 +278,7 @@ export function updateMitosis(cell: Cell, now: number): boolean {
 /** Complete mitosis — creates a daughter cell and returns it */
 export function completeMitosis(cell: Cell, world: Matter.World): Cell {
   const center = getCellCenter(cell);
-  const offset = 80;
   const axis = cell.mitosisState?.axis ?? 0;
-
-  const dx = Math.cos(axis) * offset;
-  const dy = Math.sin(axis) * offset;
 
   // Consume protein to replicate modules
   const replicationCost = mitosisProteinCost(cell);
@@ -324,19 +320,37 @@ export function completeMitosis(cell: Cell, world: Matter.World): Cell {
 
   // Each daughter gets half the parent's membrane length
   const halfScale = cell.properties.growthScale / 2;
+  const halfRadius = cell.properties.baseRadius * halfScale;
+
+  // Shrink parent constraints to half scale
+  resizeCell(cell, halfScale);
+
+  // Reposition parent's membrane particles into correct ovoid at new center
+  const parentNewX = center.x - Math.cos(axis) * halfRadius * 1.5;
+  const parentNewY = center.y - Math.sin(axis) * halfRadius * 1.5;
+  Matter.Body.setPosition(cell.center, { x: parentNewX, y: parentNewY });
+  Matter.Body.setVelocity(cell.center, { x: 0, y: 0 });
+  for (let i = 0; i < cell.membraneParticles.length; i++) {
+    const angle = (i / cell.membraneParticles.length) * Math.PI * 2;
+    const px = parentNewX + Math.cos(angle) * halfRadius * 1.2;
+    const py = parentNewY + Math.sin(angle) * halfRadius * 0.85;
+    Matter.Body.setPosition(cell.membraneParticles[i], { x: px, y: py });
+    Matter.Body.setVelocity(cell.membraneParticles[i], { x: 0, y: 0 });
+  }
+
+  // Place daughter well clear on the other side
+  const daughterX = center.x + Math.cos(axis) * halfRadius * 1.5;
+  const daughterY = center.y + Math.sin(axis) * halfRadius * 1.5;
 
   const daughter = createCell(
     world,
-    center.x + dx,
-    center.y + dy,
+    daughterX,
+    daughterY,
     { ...cell.properties, growthScale: halfScale },
     cell.modules,
     cell.cascades,
     daughterEnergy,
   );
-
-  // Shrink parent to half membrane
-  resizeCell(cell, halfScale);
 
   cell.mitosisState = null;
 
@@ -345,11 +359,18 @@ export function completeMitosis(cell: Cell, world: Matter.World): Cell {
   cell.mitosisCooldownUntil = cooldownEnd;
   daughter.mitosisCooldownUntil = cooldownEnd;
 
-  const nudgeForce = 0.002;
+  // Push both cells apart
+  const nudgeForce = 0.004;
   for (const p of cell.membraneParticles) {
     Matter.Body.applyForce(p, p.position, {
       x: -Math.cos(axis) * nudgeForce,
       y: -Math.sin(axis) * nudgeForce,
+    });
+  }
+  for (const p of daughter.membraneParticles) {
+    Matter.Body.applyForce(p, p.position, {
+      x: Math.cos(axis) * nudgeForce,
+      y: Math.sin(axis) * nudgeForce,
     });
   }
 

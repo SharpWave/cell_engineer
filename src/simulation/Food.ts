@@ -33,7 +33,9 @@ export function createFoodParticle(
   radius?: number,
   resourceValue: number = 1,
 ): FoodParticle {
-  const shape: FoodShape = Math.random() > 0.5 ? 'circle' : 'triangle';
+  // Merged particles (explicit radius) are always circles
+  const shape: FoodShape = radius !== undefined ? 'circle'
+    : (Math.random() > 0.5 ? 'circle' : 'triangle');
   if (radius === undefined) radius = 5 + Math.random() * 5;
   const colors = resourceType === 'carb' ? CARB_COLORS
     : resourceType === 'protein' ? PROTEIN_COLORS

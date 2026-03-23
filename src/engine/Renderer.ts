@@ -87,7 +87,7 @@ export function render(
     const hideModules = (document.getElementById('chk-hide-modules') as HTMLInputElement | null)?.checked;
     if (!hideModules) {
       drawModules(ctx, cell, now, selection);
-      drawCascades(ctx, cell);
+      // Cascade arrows removed — too noisy when modules are far apart
     }
   }
 
@@ -581,79 +581,6 @@ function drawFootShape(ctx: CanvasRenderingContext2D, half: number, color: strin
   }
 }
 
-function drawCascades(ctx: CanvasRenderingContext2D, cell: Cell): void {
-  const center = getCellCenter(cell);
-  const memPoints = getMembranePoints(cell);
-
-  for (const cascade of cell.cascades) {
-    const fromMod = cell.modules.find(m => m.id === cascade.fromId);
-    const toMod = cell.modules.find(m => m.id === cascade.toId);
-    if (!fromMod || !toMod) continue;
-
-    const fp = memPoints[fromMod.membraneIndex];
-    const tp = memPoints[toMod.membraneIndex];
-    if (!fp || !tp) continue;
-
-    // Draw arc outside the cell connecting the two modules
-    const fdx = fp.x - center.x, fdy = fp.y - center.y;
-    const fdist = Math.sqrt(fdx * fdx + fdy * fdy);
-    const tdx = tp.x - center.x, tdy = tp.y - center.y;
-    const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
-
-    const fx = fp.x + (fdx / fdist) * 20;
-    const fy = fp.y + (fdy / fdist) * 20;
-    const tx = tp.x + (tdx / tdist) * 20;
-    const ty = tp.y + (tdy / tdist) * 20;
-
-    // Control point pushed outward
-    const midX = (fx + tx) / 2;
-    const midY = (fy + ty) / 2;
-    const mDx = midX - center.x;
-    const mDy = midY - center.y;
-    const mDist = Math.sqrt(mDx * mDx + mDy * mDy);
-    const cpX = center.x + (mDx / mDist) * (fdist + 35);
-    const cpY = center.y + (mDy / mDist) * (fdist + 35);
-
-    const active = fromMod.active;
-    const isInhibitory = cascade.mode === 'inhibitory';
-
-    ctx.beginPath();
-    ctx.moveTo(fx, fy);
-    ctx.quadraticCurveTo(cpX, cpY, tx, ty);
-    if (isInhibitory) {
-      ctx.strokeStyle = active ? '#ff5555' : '#553333';
-    } else {
-      ctx.strokeStyle = active ? '#ffcc4a' : '#444455';
-    }
-    ctx.lineWidth = active ? 2.5 : 1.5;
-    ctx.setLineDash(active ? [] : [4, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // End marker at target
-    const arrowLen = 6;
-    const adx = tx - cpX, ady = ty - cpY;
-    const aDist = Math.sqrt(adx * adx + ady * ady);
-    if (aDist > 0) {
-      const anx = adx / aDist, any_ = ady / aDist;
-      if (isInhibitory) {
-        // Flat bar (⊣) for inhibitory
-        ctx.beginPath();
-        ctx.moveTo(tx + any_ * arrowLen, ty - anx * arrowLen);
-        ctx.lineTo(tx - any_ * arrowLen, ty + anx * arrowLen);
-        ctx.stroke();
-      } else {
-        // Arrow head for excitatory
-        ctx.beginPath();
-        ctx.moveTo(tx, ty);
-        ctx.lineTo(tx - anx * arrowLen + any_ * arrowLen * 0.5, ty - any_ * arrowLen - anx * arrowLen * 0.5);
-        ctx.moveTo(tx, ty);
-        ctx.lineTo(tx - anx * arrowLen - any_ * arrowLen * 0.5, ty - any_ * arrowLen + anx * arrowLen * 0.5);
-        ctx.stroke();
-      }
-    }
-  }
-}
 
 function drawLightIndicator(
   ctx: CanvasRenderingContext2D,
