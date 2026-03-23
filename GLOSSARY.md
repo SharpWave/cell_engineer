@@ -58,9 +58,11 @@
 
 ## Signal Cascades
 
-- **Cascade / Signal cascade**: A connection from a sensor module to a target module
-- **Excitatory cascade**: Sensor active → target activated
-- **Inhibitory cascade**: Sensor active → target force-deactivated (overrides excitatory)
+- **Cascade / Signal cascade**: A connection from any module to any other module
+- **Excitatory cascade**: Source hot → target activated
+- **Inhibitory cascade**: Source hot → target force-deactivated (overrides excitatory)
+- **Multi-pass evaluation**: Cascades propagate through chains (up to 10 passes) until stable; handles feedback loops
+- **Default state**: Sensors evaluate their condition to determine hot/cold. Adherence modules are intrinsically active (passive membrane properties). All other effectors and modulators are cold by default — only cascades can activate them.
 
 ## Mitosis
 

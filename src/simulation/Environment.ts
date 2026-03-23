@@ -288,10 +288,16 @@ export function updateEnvironment(
       const lnx = lookX / lookLen;
       const lny = lookY / lookLen;
 
-      const halfFov = ((mod.config.fovDegrees ?? 90) / 2) * (Math.PI / 180);
+      const fovDeg = mod.config.fovDegrees ?? 90;
+      const halfFov = (fovDeg / 2) * (Math.PI / 180);
       const cosHalfFov = Math.cos(halfFov);
       const target = mod.config.eyeTarget ?? 'carb';
-      const EYE_RANGE = 300;
+      const eyeScale = mod.config.eyeScale ?? 1;
+      // Constant-area cone: r = baseR * sqrt(standardFov / actualFov) * sqrt(eyeScale)
+      const BASE_EYE_RANGE = 450;
+      const STANDARD_FOV_RAD = Math.PI / 2; // 90°
+      const actualFovRad = fovDeg * (Math.PI / 180);
+      const EYE_RANGE = BASE_EYE_RANGE * Math.sqrt(STANDARD_FOV_RAD / actualFovRad) * Math.sqrt(eyeScale);
 
       let seen = false;
 
@@ -299,8 +305,8 @@ export function updateEnvironment(
       const eyeX = mp.position.x;
       const eyeY = mp.position.y;
 
-      // Check food particles
-      if (target === 'carb' || target === 'protein') {
+      // Check food particles (carb, protein, or waste)
+      if (target === 'carb' || target === 'protein' || target === 'waste') {
         for (const f of env.food) {
           if (f.absorbed || f.resourceType !== target) continue;
           const dx = f.body.position.x - eyeX;
@@ -325,8 +331,6 @@ export function updateEnvironment(
           if (dot >= cosHalfFov) { seen = true; break; }
         }
       }
-
-      // Check waste food (waste isn't a food type, so skip unless we add it)
 
       if (seen) preActivated.add(mod.id);
     }
@@ -468,49 +472,56 @@ export function updateEnvironment(
         const daughter = completeMitosis(cell, world);
         updateFingerprint(daughter);
         newCells.push(daughter);
+        // Skip particle update this frame — membrane just moved, center is stale
+        continue;
       }
     }
 
-    // Internal particles — build per-type membrane config from effects
-    const memPoints = getMembranePoints(cell);
-    const typeConfigs: Record<'carb' | 'protein' | 'waste', import('./Energy').MembraneTypeConfig> = {
-      waste: {
-        push: hasTransport(effects, 'waste', 'exo'),
-        adherent: hasAdherence(effects, 'internal', 'waste'),
-        repulsive: hasRepulsion(effects, 'internal', 'waste'),
-        permeable: hasTransport(effects, 'waste', 'exo'),
-      },
-      carb: {
-        push: hasTransport(effects, 'carb', 'exo'),
-        adherent: hasAdherence(effects, 'internal', 'carb'),
-        repulsive: hasRepulsion(effects, 'internal', 'carb'),
-        permeable: hasTransport(effects, 'carb', 'exo'),
-      },
-      protein: {
-        push: hasTransport(effects, 'protein', 'exo'),
-        adherent: hasAdherence(effects, 'internal', 'protein'),
-        repulsive: hasRepulsion(effects, 'internal', 'protein'),
-        permeable: hasTransport(effects, 'protein', 'exo'),
-      },
-    };
-    const result = updateParticles(
-      cell.energy, memPoints, center, typeConfigs, delta,
-    );
-    // Expelled carbs become carb food
-    for (const pos of result.expelledCarbPositions) {
-      env.food.push(createFoodParticle(world, pos.x, pos.y, 'carb'));
-    }
-    // Expelled protein becomes protein food
-    for (const pos of result.expelledProteinPositions) {
-      env.food.push(createFoodParticle(world, pos.x, pos.y, 'protein'));
-    }
-    // Expelled waste becomes waste food (heavy obstacle)
-    for (const pos of result.expelledWastePositions) {
-      env.food.push(createFoodParticle(world, pos.x, pos.y, 'waste'));
-    }
+    // Skip particle update for a few frames after mitosis to let membrane settle
+    if (cell.postMitosisFrames > 0) {
+      cell.postMitosisFrames--;
+    } else {
+      // Internal particles — build per-type membrane config from effects
+      const memPoints = getMembranePoints(cell);
+      const typeConfigs: Record<'carb' | 'protein' | 'waste', import('./Energy').MembraneTypeConfig> = {
+        waste: {
+          push: hasTransport(effects, 'waste', 'exo'),
+          adherent: hasAdherence(effects, 'internal', 'waste'),
+          repulsive: hasRepulsion(effects, 'internal', 'waste'),
+          permeable: hasTransport(effects, 'waste', 'exo'),
+        },
+        carb: {
+          push: hasTransport(effects, 'carb', 'exo'),
+          adherent: hasAdherence(effects, 'internal', 'carb'),
+          repulsive: hasRepulsion(effects, 'internal', 'carb'),
+          permeable: hasTransport(effects, 'carb', 'exo'),
+        },
+        protein: {
+          push: hasTransport(effects, 'protein', 'exo'),
+          adherent: hasAdherence(effects, 'internal', 'protein'),
+          repulsive: hasRepulsion(effects, 'internal', 'protein'),
+          permeable: hasTransport(effects, 'protein', 'exo'),
+        },
+      };
+      const result = updateParticles(
+        cell.energy, memPoints, center, typeConfigs, delta,
+      );
+      // Expelled carbs become carb food
+      for (const pos of result.expelledCarbPositions) {
+        env.food.push(createFoodParticle(world, pos.x, pos.y, 'carb'));
+      }
+      // Expelled protein becomes protein food
+      for (const pos of result.expelledProteinPositions) {
+        env.food.push(createFoodParticle(world, pos.x, pos.y, 'protein'));
+      }
+      // Expelled waste becomes waste food (heavy obstacle)
+      for (const pos of result.expelledWastePositions) {
+        env.food.push(createFoodParticle(world, pos.x, pos.y, 'waste'));
+      }
 
-    // Reconcile counters to match actual particles (prevents drift)
-    reconcileEnergy(cell.energy);
+      // Reconcile counters to match actual particles (prevents drift)
+      reconcileEnergy(cell.energy);
+    }
 
     // Cell-cell adherence/repulsion forces
     for (const otherId of cell.touchingCells) {

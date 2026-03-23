@@ -89,6 +89,21 @@ export function render(
       drawModules(ctx, cell, now, selection);
       // Cascade arrows removed — too noisy when modules are far apart
     }
+
+    // Eye preview cone (while configuring a new eye module)
+    if (cellSelected && selection.pendingEyePreview) {
+      const preview = selection.pendingEyePreview;
+      const mp = cell.membraneParticles[preview.membraneIndex];
+      if (mp) {
+        const center = getCellCenter(cell);
+        const dx = mp.position.x - center.x;
+        const dy = mp.position.y - center.y;
+        const lookAngle = Math.atan2(dy, dx);
+        drawFovCone(ctx, mp.position.x, mp.position.y, lookAngle,
+          preview.config.fovDegrees ?? 90, preview.config.eyeScale ?? 1,
+          'rgba(255, 255, 100, 0.12)', 'rgba(255, 255, 100, 0.4)');
+      }
+    }
   }
 
   // -- Overlay UI (screen-space) --
@@ -501,25 +516,45 @@ function drawModules(ctx: CanvasRenderingContext2D, cell: Cell, now: number, sel
 
       // Draw FOV cone for active eye modules
       if (mod.subtype === 'eye' && mod.active) {
-        const fovDeg = mod.config.fovDegrees ?? 90;
-        const halfFov = (fovDeg / 2) * (Math.PI / 180);
         const lookAngle = Math.atan2(dy, dx);
-        const EYE_RANGE = 300;
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(mp.x, mp.y);
-        ctx.arc(mp.x, mp.y, EYE_RANGE, lookAngle - halfFov, lookAngle + halfFov);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.restore();
+        drawFovCone(ctx, mp.x, mp.y, lookAngle, mod.config.fovDegrees ?? 90, mod.config.eyeScale ?? 1, 'rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0.2)');
       }
     }
   }
+}
+
+/** Compute eye range from FOV and scale */
+function computeEyeRange(fovDeg: number, eyeScale: number): number {
+  const BASE_EYE_RANGE = 450;
+  const STANDARD_FOV_RAD = Math.PI / 2;
+  const actualFovRad = fovDeg * (Math.PI / 180);
+  return BASE_EYE_RANGE * Math.sqrt(STANDARD_FOV_RAD / actualFovRad) * Math.sqrt(eyeScale);
+}
+
+/** Draw a FOV cone arc at a position */
+function drawFovCone(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number,
+  lookAngle: number,
+  fovDeg: number,
+  eyeScale: number,
+  fillColor: string,
+  strokeColor: string,
+): void {
+  const halfFov = (fovDeg / 2) * (Math.PI / 180);
+  const range = computeEyeRange(fovDeg, eyeScale);
+  if (range < 1) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.arc(x, y, range, lookAngle - halfFov, lookAngle + halfFov);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** Draw an eye shape: oval with a dark pupil */

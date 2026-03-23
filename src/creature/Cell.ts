@@ -32,6 +32,8 @@ export interface Cell {
   lastMaintenanceTick: number;
   /** Accumulates fractional growth ticks (protein → membrane) */
   growthAccumulator: number;
+  /** Frames to skip particle update after mitosis (lets membrane settle) */
+  postMitosisFrames: number;
 }
 
 export interface MitosisState {
@@ -232,6 +234,7 @@ export function createCell(
     mitosisCooldownUntil: 0,
     lastMaintenanceTick: 0,
     growthAccumulator: 0,
+    postMitosisFrames: 0,
   };
 
   updateFingerprint(cell);
@@ -320,30 +323,38 @@ export function completeMitosis(cell: Cell, world: Matter.World): Cell {
     }
   }
 
-  // Clear sliding state and scale positions to fit the half-size membrane
-  for (const p of parentKeep) {
+  // Each daughter gets half the parent's membrane length
+  const halfScale = cell.properties.growthScale / 2;
+  const halfRadius = cell.properties.baseRadius * halfScale;
+  // Safe interior radius — well inside the narrow axis of the ovoid (0.85 * halfRadius)
+  const safeRadius = halfRadius * 0.65;
+
+  // Clear sliding state, scale positions to fit half-size membrane, and clamp inside
+  function clampAndScale(p: InternalParticle): void {
     p.slidingToVertex = null;
     p.x *= 0.5;
     p.y *= 0.5;
     p.vx *= 0.5;
     p.vy *= 0.5;
+    // Clamp to safe interior so no particles land on or outside the membrane boundary
+    const dist = Math.sqrt(p.x * p.x + p.y * p.y);
+    if (dist > safeRadius) {
+      const scale = safeRadius / dist;
+      p.x *= scale;
+      p.y *= scale;
+    }
   }
-  for (const p of daughterGet) {
-    p.slidingToVertex = null;
-    p.x *= 0.5;
-    p.y *= 0.5;
-    p.vx *= 0.5;
-    p.vy *= 0.5;
-  }
+  for (const p of parentKeep) clampAndScale(p);
+  for (const p of daughterGet) clampAndScale(p);
 
   cell.energy.particles = parentKeep;
   daughterEnergy.particles = daughterGet;
   reconcileEnergy(cell.energy);
   reconcileEnergy(daughterEnergy);
 
-  // Each daughter gets half the parent's membrane length
-  const halfScale = cell.properties.growthScale / 2;
-  const halfRadius = cell.properties.baseRadius * halfScale;
+  // Reset membrane angle tracking to prevent co-rotation artifacts after teleport
+  cell.energy.lastMembraneAngle = 0;
+  daughterEnergy.lastMembraneAngle = 0;
 
   // Shrink parent constraints to half scale
   resizeCell(cell, halfScale);
@@ -376,6 +387,10 @@ export function completeMitosis(cell: Cell, world: Matter.World): Cell {
   );
 
   cell.mitosisState = null;
+
+  // Skip particle update for a few frames to let membrane physics settle
+  cell.postMitosisFrames = 3;
+  daughter.postMitosisFrames = 3;
 
   // Both parent and daughter go on cooldown
   const cooldownEnd = performance.now() + MITOSIS_COOLDOWN_MS;

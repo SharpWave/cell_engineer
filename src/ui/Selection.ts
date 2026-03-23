@@ -1,5 +1,6 @@
 import { Cell, getCellCenter, getMembranePoints } from '../creature/Cell';
 import { FoodParticle } from '../simulation/Food';
+import { ModuleConfig } from '../creature/Module';
 import { Environment } from '../simulation/Environment';
 import { Camera } from '../engine/Camera';
 
@@ -8,16 +9,24 @@ export type SelectionTarget =
   | { type: 'food'; food: FoodParticle }
   | null;
 
+/** Live preview state for an eye module being configured */
+export interface EyePreview {
+  membraneIndex: number;
+  config: ModuleConfig;
+}
+
 export interface SelectionState {
   current: SelectionTarget;
   /** When set, next canvas click picks a membrane index on the selected cell */
   pendingPlacement: ((membraneIndex: number) => void) | null;
   /** Module ID to visually highlight on the cell (from cascade UI hover/focus) */
   highlightedModuleId: string | null;
+  /** Live eye FOV preview while configuring an eye module */
+  pendingEyePreview: EyePreview | null;
 }
 
 export function createSelectionState(): SelectionState {
-  return { current: null, pendingPlacement: null, highlightedModuleId: null };
+  return { current: null, pendingPlacement: null, highlightedModuleId: null, pendingEyePreview: null };
 }
 
 /** Convert screen coordinates to world coordinates */

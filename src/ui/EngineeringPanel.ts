@@ -32,6 +32,9 @@ let pendingBuild: { subtype: ModuleSubtype; config: ModuleConfig } | null = null
 /** Whether we're waiting for a membrane click */
 let awaitingPlacement = false;
 
+/** Eye-specific: configuring after membrane placement (index already chosen) */
+let pendingEyeConfig: { membraneIndex: number; config: ModuleConfig } | null = null;
+
 /**
  * Build (or rebuild) the full engineering panel DOM inside the container.
  */
@@ -61,31 +64,32 @@ export function buildEngineeringPanel(
     const label = getModuleDisplayLabel(mod);
     const row = document.createElement('div');
     row.className = 'stat-row';
+    row.style.alignItems = 'center';
     row.innerHTML = `
-      <span class="stat-label" style="font-size:11px">${label}</span>
+      <span class="stat-label" style="font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</span>
       <span class="stat-value" data-mod-id="${mod.id}"
-        style="color:${mod.active ? info.activeColor : info.color}">
+        style="color:${mod.active ? info.activeColor : info.color};min-width:40px;text-align:right;margin-right:4px">
         ${mod.active ? 'ACTIVE' : 'idle'}
       </span>
     `;
-    modSection.appendChild(row);
 
-    // Delete button for non-starter modules (index >= 7)
+    // Inline red x remove button
     const modIndex = cell.modules.indexOf(mod);
     if (modIndex >= 7) {
       const delBtn = document.createElement('button');
-      delBtn.className = 'eng-btn';
-      delBtn.style.fontSize = '10px';
-      delBtn.style.color = '#ff6666';
-      delBtn.textContent = 'Remove';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Remove module';
+      delBtn.style.cssText = 'padding:0 4px;font-size:11px;background:#3a1a1a;color:#ff4444;border:1px solid #662222;border-radius:3px;cursor:pointer;line-height:16px;flex-shrink:0';
       delBtn.addEventListener('click', () => {
         cell.cascades = cell.cascades.filter(c => c.fromId !== mod.id && c.toId !== mod.id);
         cell.modules.splice(cell.modules.indexOf(mod), 1);
         updateFingerprint(cell);
         buildEngineeringPanel(container, cell, selection);
       });
-      modSection.appendChild(delBtn);
+      row.appendChild(delBtn);
     }
+
+    modSection.appendChild(row);
   }
 
   container.appendChild(modSection);
@@ -95,7 +99,71 @@ export function buildEngineeringPanel(
   addSection.className = 'prop-section';
   addSection.innerHTML = '<div class="prop-title">Add Module</div>';
 
-  if (awaitingPlacement) {
+  if (pendingEyeConfig) {
+    // Eye-specific: already placed on membrane, now configuring with live preview
+    const eyeInfo = MODULE_CATALOG['eye'];
+    const config = pendingEyeConfig.config;
+
+    const header = document.createElement('div');
+    header.className = 'stat-row';
+    header.innerHTML = `<span class="stat-label" style="color:${eyeInfo.color};font-weight:bold">Eye [${pendingEyeConfig.membraneIndex}]</span><span class="stat-value">${eyeInfo.cost}P</span>`;
+    addSection.appendChild(header);
+
+    addSection.appendChild(buildConfigSelect('Target', ['carb', 'protein', 'waste', 'cell'], config.eyeTarget ?? 'carb', v => {
+      config.eyeTarget = v as any;
+      if (selection) selection.pendingEyePreview = { membraneIndex: pendingEyeConfig!.membraneIndex, config };
+    }));
+    addSection.appendChild(buildConfigNumber('FOV (°)', config.fovDegrees ?? 90, v => {
+      config.fovDegrees = v;
+      if (selection) selection.pendingEyePreview = { membraneIndex: pendingEyeConfig!.membraneIndex, config };
+    }));
+    addSection.appendChild(buildConfigSlider('Range', config.eyeScale ?? 1, 0, 1, 0.05, v => {
+      config.eyeScale = v;
+      if (selection) selection.pendingEyePreview = { membraneIndex: pendingEyeConfig!.membraneIndex, config };
+    }));
+
+    // Set initial preview
+    if (selection) selection.pendingEyePreview = { membraneIndex: pendingEyeConfig.membraneIndex, config };
+
+    const btnRow = document.createElement('div');
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '4px';
+    btnRow.style.marginTop = '4px';
+
+    const okBtn = document.createElement('button');
+    okBtn.className = 'eng-btn';
+    okBtn.style.flex = '1';
+    okBtn.style.textAlign = 'center';
+    okBtn.style.color = '#4aff8a';
+    okBtn.textContent = 'Confirm';
+    okBtn.disabled = cell.energy.protein < eyeInfo.cost;
+    okBtn.addEventListener('click', () => {
+      if (spendProtein(cell.energy, eyeInfo.cost)) {
+        const mod = createModule('eye', pendingEyeConfig!.membraneIndex, config);
+        cell.modules.push(mod);
+        updateFingerprint(cell);
+      }
+      pendingEyeConfig = null;
+      if (selection) selection.pendingEyePreview = null;
+      buildEngineeringPanel(container, cell, selection);
+    });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'eng-btn';
+    cancelBtn.style.flex = '1';
+    cancelBtn.style.textAlign = 'center';
+    cancelBtn.style.color = '#ff6666';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => {
+      pendingEyeConfig = null;
+      if (selection) selection.pendingEyePreview = null;
+      buildEngineeringPanel(container, cell, selection);
+    });
+
+    btnRow.appendChild(okBtn);
+    btnRow.appendChild(cancelBtn);
+    addSection.appendChild(btnRow);
+  } else if (awaitingPlacement) {
     // Waiting for membrane click
     const msg = document.createElement('div');
     msg.style.color = '#e0c878';
@@ -111,7 +179,10 @@ export function buildEngineeringPanel(
     cancelBtn.addEventListener('click', () => {
       awaitingPlacement = false;
       pendingBuild = null;
-      if (selection) selection.pendingPlacement = null;
+      if (selection) {
+        selection.pendingPlacement = null;
+        selection.pendingEyePreview = null;
+      }
       buildEngineeringPanel(container, cell, selection);
     });
     addSection.appendChild(cancelBtn);
@@ -152,15 +223,11 @@ export function buildEngineeringPanel(
     if (subtype === 'growth_mod') {
       addSection.appendChild(buildConfigSelect('Mode', ['grow', 'reduce'], config.growthMode ?? 'grow', v => { config.growthMode = v as any; }));
     }
-    if (subtype === 'eye') {
-      addSection.appendChild(buildConfigSelect('Target', ['carb', 'protein', 'cell'], config.eyeTarget ?? 'carb', v => { config.eyeTarget = v as any; }));
-      addSection.appendChild(buildConfigNumber('FOV (°)', config.fovDegrees ?? 90, v => { config.fovDegrees = v; }));
-    }
     if (subtype === 'membrane_length_sensor') {
       addSection.appendChild(buildConfigNumber('Threshold', config.threshold ?? 1, v => { config.threshold = v; }));
       addSection.appendChild(buildConfigSelect('Mode', ['above', 'below'], config.mode ?? 'above', v => { config.mode = v as any; }));
     }
-    // foot has no config options
+    // foot, eye handled separately; other subtypes with no config
 
     // Confirm / Cancel buttons
     const btnRow = document.createElement('div');
@@ -215,8 +282,20 @@ export function buildEngineeringPanel(
       btn.textContent = `${info.label} (${info.cost}P)`;
       btn.disabled = cell.energy.protein < info.cost;
       btn.addEventListener('click', () => {
-        pendingBuild = { subtype, config: getDefaultBuildConfig(subtype) };
-        buildEngineeringPanel(container, cell, selection);
+        if (subtype === 'eye') {
+          // Eye: place first, then configure with live preview
+          if (!selection) return;
+          awaitingPlacement = true;
+          selection.pendingPlacement = (membraneIndex: number) => {
+            awaitingPlacement = false;
+            pendingEyeConfig = { membraneIndex, config: getDefaultBuildConfig('eye') };
+            buildEngineeringPanel(container, cell, selection);
+          };
+          buildEngineeringPanel(container, cell, selection);
+        } else {
+          pendingBuild = { subtype, config: getDefaultBuildConfig(subtype) };
+          buildEngineeringPanel(container, cell, selection);
+        }
       });
       addSection.appendChild(btn);
     }
@@ -253,20 +332,17 @@ export function buildEngineeringPanel(
     casSection.appendChild(row);
   }
 
-  // Connect UI
-  const sensors = cell.modules.filter(m => MODULE_CATALOG[m.subtype].category === 'sensor');
-  const targets = cell.modules.filter(m => MODULE_CATALOG[m.subtype].category !== 'sensor');
-
-  if (sensors.length > 0 && targets.length > 0) {
+  // Connect UI — any module can be a source or target
+  if (cell.modules.length >= 2) {
     const connectRow = document.createElement('div');
     connectRow.style.marginTop = '8px';
 
     const fromSelect = document.createElement('select');
     fromSelect.className = 'eng-select';
-    for (const s of sensors) {
+    for (const m of cell.modules) {
       const opt = document.createElement('option');
-      opt.value = s.id;
-      opt.textContent = getModuleDisplayLabel(s);
+      opt.value = m.id;
+      opt.textContent = getModuleDisplayLabel(m);
       fromSelect.appendChild(opt);
     }
     fromSelect.addEventListener('focus', () => { if (selection) selection.highlightedModuleId = fromSelect.value; });
@@ -287,10 +363,10 @@ export function buildEngineeringPanel(
 
     const toSelect = document.createElement('select');
     toSelect.className = 'eng-select';
-    for (const t of targets) {
+    for (const m of cell.modules) {
       const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = getModuleDisplayLabel(t);
+      opt.value = m.id;
+      opt.textContent = getModuleDisplayLabel(m);
       toSelect.appendChild(opt);
     }
     toSelect.addEventListener('focus', () => { if (selection) selection.highlightedModuleId = toSelect.value; });
@@ -339,7 +415,7 @@ function getDefaultBuildConfig(subtype: ModuleSubtype): ModuleConfig {
     case 'growth_mod':
       return { growthMode: 'grow' };
     case 'eye':
-      return { eyeTarget: 'carb', fovDegrees: 90 };
+      return { eyeTarget: 'carb', fovDegrees: 90, eyeScale: 1 };
     case 'membrane_length_sensor':
       return { threshold: 1, mode: 'above' };
     default:
@@ -378,12 +454,39 @@ function buildConfigNumber(
   row.style.alignItems = 'center';
   row.innerHTML = `
     <span class="stat-label">${label}</span>
-    <input type="number" value="${value}" class="eng-number-input"
+    <input type="number" step="any" value="${value}" class="eng-number-input"
       style="width:60px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;border-radius:3px;padding:2px 4px;font-size:12px;text-align:right">
   `;
   const input = row.querySelector('input')!;
   input.addEventListener('change', () => {
-    const v = parseInt(input.value);
+    const v = parseFloat(input.value);
+    if (!isNaN(v)) onChange(v);
+  });
+  return row;
+}
+
+function buildConfigSlider(
+  label: string,
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+  onChange: (value: number) => void,
+): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'stat-row';
+  row.style.alignItems = 'center';
+  const pct = Math.round(value * 100);
+  row.innerHTML = `
+    <span class="stat-label">${label} <span class="slider-pct">${pct}%</span></span>
+    <input type="range" min="${min}" max="${max}" step="${step}" value="${value}"
+      style="width:80px;accent-color:#4a8aff">
+  `;
+  const input = row.querySelector('input')!;
+  const pctSpan = row.querySelector('.slider-pct')!;
+  input.addEventListener('input', () => {
+    const v = parseFloat(input.value);
+    pctSpan.textContent = `${Math.round(v * 100)}%`;
     if (!isNaN(v)) onChange(v);
   });
   return row;

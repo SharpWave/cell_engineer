@@ -53,6 +53,8 @@ export interface ModuleConfig {
   // eye
   eyeTarget?: SurfaceTarget;
   fovDegrees?: number;
+  /** Scales the FOV cone area: 0 = no range, 1 = full range (default 1) */
+  eyeScale?: number;
 }
 
 export interface CellModule {
@@ -153,31 +155,49 @@ export function getModuleDisplayLabel(mod: CellModule): string {
     case 'membrane_transporter': {
       const res = mod.config.resourceType ?? 'carb';
       const dir = mod.config.direction === 'exo' ? 'Exo' : 'Endo';
-      return `${capitalize(res)} ${dir}cytosis`;
+      return `${capitalize(res)} ${dir}cytosis [${mod.membraneIndex}]`;
     }
-    case 'internal_sensor':
-      return `${capitalize(mod.config.senseResource ?? 'waste')} Sensor (int)`;
+    case 'internal_sensor': {
+      const res = mod.config.senseResource ?? 'waste';
+      const op = mod.config.mode === 'below' ? '<' : '>';
+      const t = mod.config.threshold ?? 5;
+      return `${capitalize(res)} Sensor (int) ${op}${t} [${mod.membraneIndex}]`;
+    }
     case 'membrane_sensor': {
       const side = mod.config.membraneSide === 'internal' ? 'int' : 'ext';
-      return `${capitalize(mod.config.senseTarget ?? 'carb')} Sensor (${side})`;
+      const target = mod.config.senseTarget ?? 'carb';
+      const op = mod.config.mode === 'below' ? '<' : '≥';
+      const t = mod.config.threshold ?? 1;
+      return `${capitalize(target)} Sensor (${side}) ${op}${t} [${mod.membraneIndex}]`;
     }
     case 'adherence_module': {
       const side = mod.config.adherenceSide === 'internal' ? 'int' : 'ext';
       const mode = mod.config.adherenceMode === 'repulsion' ? 'Repel' : 'Adhere';
-      return `${capitalize(mod.config.adherenceTarget ?? 'carb')} ${mode} (${side})`;
+      return `${capitalize(mod.config.adherenceTarget ?? 'carb')} ${mode} (${side}) [${mod.membraneIndex}]`;
     }
+    case 'light_sensor':
+      return `Light Sensor ≥${mod.config.threshold ?? 50}% [${mod.membraneIndex}]`;
     case 'growth_mod':
-      return mod.config.growthMode === 'reduce' ? 'Reduction' : 'Growth';
-    case 'eye':
-      return `Eye (${capitalize(mod.config.eyeTarget ?? 'carb')}, ${mod.config.fovDegrees ?? 90}°)`;
+      return `${mod.config.growthMode === 'reduce' ? 'Reduction' : 'Growth'} [${mod.membraneIndex}]`;
+    case 'eye': {
+      const scale = mod.config.eyeScale ?? 1;
+      const scalePct = Math.round(scale * 100);
+      return `Eye (${capitalize(mod.config.eyeTarget ?? 'carb')}, ${mod.config.fovDegrees ?? 90}°, ${scalePct}%) [${mod.membraneIndex}]`;
+    }
     case 'foot':
       return `Foot [${mod.membraneIndex}]`;
     case 'membrane_length_sensor': {
-      const mode = mod.config.mode === 'below' ? '<' : '≥';
-      return `Membrane ${mode} ${mod.config.threshold ?? 1}`;
+      const op = mod.config.mode === 'below' ? '<' : '≥';
+      return `Membrane ${op}${mod.config.threshold ?? 1} [${mod.membraneIndex}]`;
     }
-    default:
-      return MODULE_CATALOG[mod.subtype].label;
+    case 'mitosis':
+      return `Mitosis [${mod.membraneIndex}]`;
+    case 'rigidity_mod':
+      return `Rigidity [${mod.membraneIndex}]`;
+    case 'flexibility_mod':
+      return `Flexibility [${mod.membraneIndex}]`;
+    case 'shaker':
+      return `Shaker [${mod.membraneIndex}]`;
   }
 }
 
@@ -200,7 +220,7 @@ export function getModuleFingerprintKey(mod: CellModule): string {
     case 'growth_mod':
       return `growth:${mod.config.growthMode}`;
     case 'eye':
-      return `eye:${mod.config.eyeTarget}:${mod.config.fovDegrees}`;
+      return `eye:${mod.config.eyeTarget}:${mod.config.fovDegrees}:${mod.config.eyeScale ?? 1}`;
     case 'foot':
       return `foot:${mod.membraneIndex}`;
     case 'membrane_length_sensor':
@@ -229,7 +249,7 @@ function getDefaultConfig(subtype: ModuleSubtype): ModuleConfig {
     case 'growth_mod':
       return { growthMode: 'grow' as GrowthMode };
     case 'eye':
-      return { eyeTarget: 'carb' as SurfaceTarget, fovDegrees: 90 };
+      return { eyeTarget: 'carb' as SurfaceTarget, fovDegrees: 90, eyeScale: 1 };
     case 'membrane_length_sensor':
       return { threshold: 1, mode: 'above' as const };
     default:
@@ -259,21 +279,15 @@ export function updateModules(
   cascades: SignalCascade[],
   ctx: ModuleContext,
 ): ModuleEffects {
-  // Reset
+  // Reset all modules to cold
   for (const m of modules) m.active = false;
 
-  // Always-on modules (passive membrane properties)
+  // Adherence modules are passive membrane properties — intrinsically active
   for (const m of modules) {
-    if (m.subtype === 'adherence_module' || m.subtype === 'growth_mod') m.active = true;
+    if (m.subtype === 'adherence_module') m.active = true;
   }
 
-  // Pre-activated modules (spatially evaluated, e.g. eye)
-  for (const id of ctx.preActivated) {
-    const m = modules.find(mod => mod.id === id);
-    if (m) m.active = true;
-  }
-
-  // Evaluate sensors
+  // Evaluate sensors — their intrinsic condition determines base state
   for (const m of modules) {
     switch (m.subtype) {
       case 'internal_sensor': {
@@ -306,29 +320,53 @@ export function updateModules(
     }
   }
 
-  // Propagate cascades: inhibitory takes precedence over excitatory
-  // First pass: collect excitation and inhibition per target
-  const excited = new Set<string>();
-  const inhibited = new Set<string>();
-  for (const c of cascades) {
-    const from = modules.find(m => m.id === c.fromId);
-    if (!from?.active) continue;
-    if (c.mode === 'inhibitory') {
-      inhibited.add(c.toId);
-    } else {
-      excited.add(c.toId);
+  // Pre-activated modules (spatially evaluated, e.g. eye)
+  for (const id of ctx.preActivated) {
+    const m = modules.find(mod => mod.id === id);
+    if (m) m.active = true;
+  }
+
+  // Effectors and modulators are cold by default — only cascades can activate them.
+  // Sensors start from their intrinsic evaluation above.
+
+  // Multi-pass cascade propagation: any hot module can source a cascade.
+  // Iterate until stable or max passes reached (handles chains and cycles).
+  const MAX_CASCADE_PASSES = 10;
+  for (let pass = 0; pass < MAX_CASCADE_PASSES; pass++) {
+    let changed = false;
+
+    const excited = new Set<string>();
+    const inhibited = new Set<string>();
+    for (const c of cascades) {
+      const from = modules.find(m => m.id === c.fromId);
+      if (!from?.active) continue;
+      if (c.mode === 'inhibitory') {
+        inhibited.add(c.toId);
+      } else {
+        excited.add(c.toId);
+      }
     }
-  }
-  // Second pass: activate excited targets that aren't inhibited
-  for (const id of excited) {
-    if (inhibited.has(id)) continue;
-    const to = modules.find(m => m.id === id);
-    if (to) to.active = true;
-  }
-  // Third pass: force-deactivate inhibited targets (overrides always-on)
-  for (const id of inhibited) {
-    const to = modules.find(m => m.id === id);
-    if (to) to.active = false;
+
+    // Activate excited targets that aren't inhibited
+    for (const id of excited) {
+      if (inhibited.has(id)) continue;
+      const to = modules.find(m => m.id === id);
+      if (to && !to.active) {
+        to.active = true;
+        changed = true;
+      }
+    }
+
+    // Force-deactivate inhibited targets (overrides sensor intrinsic state)
+    for (const id of inhibited) {
+      const to = modules.find(m => m.id === id);
+      if (to && to.active) {
+        to.active = false;
+        changed = true;
+      }
+    }
+
+    if (!changed) break;
   }
 
   // Collect effects
