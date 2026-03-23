@@ -313,6 +313,10 @@ export function completeMitosis(cell: Cell, world: Matter.World): Cell {
     }
   }
 
+  // Clear sliding state — both cells have new membrane geometry
+  for (const p of parentKeep) p.slidingToVertex = null;
+  for (const p of daughterGet) p.slidingToVertex = null;
+
   cell.energy.particles = parentKeep;
   daughterEnergy.particles = daughterGet;
   reconcileEnergy(cell.energy);

@@ -5,6 +5,16 @@ export interface InternalParticle {
   vx: number;
   vy: number;
   type: 'carb' | 'protein' | 'waste';
+  /** Index of the membrane polygon vertex this particle is sliding toward (null = free) */
+  slidingToVertex: number | null;
+}
+
+/** Per-type configuration for how internal particles interact with the membrane */
+export interface MembraneTypeConfig {
+  push: boolean;       // outward force pushing this type toward membrane
+  adherent: boolean;   // sticks to membrane edge and slides to vertex
+  repulsive: boolean;  // bounces hard off membrane
+  permeable: boolean;  // can be expelled at a membrane vertex (exo transport)
 }
 
 export interface EnergyState {
@@ -122,6 +132,7 @@ function makeParticle(type: InternalParticle['type']): InternalParticle {
     vx: (Math.random() - 0.5) * 0.8,
     vy: (Math.random() - 0.5) * 0.8,
     type,
+    slidingToVertex: null,
   };
 }
 
@@ -132,6 +143,7 @@ export function makeParticleAt(type: InternalParticle['type'], x: number, y: num
     vx: (Math.random() - 0.5) * 0.3,
     vy: (Math.random() - 0.5) * 0.3,
     type,
+    slidingToVertex: null,
   };
 }
 
@@ -237,12 +249,7 @@ export function updateParticles(
   state: EnergyState,
   membranePointsWorld: Vec2[],
   cellCenter: Vec2,
-  wastePermeable: boolean,
-  wastePush: boolean,
-  carbPush: boolean,
-  carbPermeable: boolean,
-  proteinPush: boolean,
-  proteinPermeable: boolean,
+  typeConfigs: Record<InternalParticle['type'], MembraneTypeConfig>,
   delta: number,
 ): ParticleExpulsionResult {
   const dt = delta / 16;
@@ -251,6 +258,7 @@ export function updateParticles(
     x: p.x - cellCenter.x,
     y: p.y - cellCenter.y,
   }));
+  const n = poly.length;
 
   let expelledWaste = 0;
   let expelledCarbs = 0;
@@ -264,12 +272,14 @@ export function updateParticles(
   const INTERACT_RANGE = 25;
   const INTERACT_FORCE = 0.003;
   const PARTICLE_RADIUS = 3;
-  const MIN_SEP = PARTICLE_RADIUS * 2 * 0.95; // 5% overlap means 95% of diameter apart
+  const MIN_SEP = PARTICLE_RADIUS * 2 * 0.95;
   const REPEL_FORCE = 0.02;
   for (let i = 0; i < particles.length; i++) {
     const a = particles[i];
+    if (a.slidingToVertex !== null) continue; // sliding particles are exempt
     for (let j = i + 1; j < particles.length; j++) {
       const b = particles[j];
+      if (b.slidingToVertex !== null) continue;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const distSq = dx * dx + dy * dy;
@@ -279,23 +289,15 @@ export function updateParticles(
       const nx = dx / dist;
       const ny = dy / dist;
 
-      // Hard separation: no more than 40% overlap
       if (dist < MIN_SEP) {
         const push = (MIN_SEP - dist) * REPEL_FORCE;
         a.vx -= nx * push;
         a.vy -= ny * push;
         b.vx += nx * push;
         b.vy += ny * push;
-        continue; // skip attraction when overlapping
+        continue;
       }
 
-      // Determine attraction (+) or repulsion (-)
-      // protein ↔ protein: attract
-      // carb ↔ protein: attract
-      // carb ↔ carb: repel
-      // waste ↔ protein: attract
-      // waste ↔ waste: attract
-      // waste ↔ carb: ignore
       let sign = 0;
       const types = a.type + ':' + b.type;
       switch (types) {
@@ -317,15 +319,54 @@ export function updateParticles(
     }
   }
 
+  const SLIDE_FORCE = 0.12;
+  const SLIDE_ARRIVE_DIST = 5;
+
   for (let i = state.particles.length - 1; i >= 0; i--) {
     const p = state.particles[i];
+    const cfg = typeConfigs[p.type];
 
-    // Outward push forces
-    const shouldPush =
-      (wastePush && p.type === 'waste') ||
-      (carbPush && p.type === 'carb') ||
-      (proteinPush && p.type === 'protein');
-    if (shouldPush) {
+    // --- Sliding particles: move directly toward target vertex ---
+    if (p.slidingToVertex !== null) {
+      // If adherence lost (module went cold), release back into cytoplasm
+      if (!cfg.adherent) {
+        p.slidingToVertex = null;
+        bounceOffMembrane(p, poly);
+        continue;
+      }
+      const tv = poly[p.slidingToVertex];
+      const dx = tv.x - p.x;
+      const dy = tv.y - p.y;
+      const distSq = dx * dx + dy * dy;
+
+      if (distSq < SLIDE_ARRIVE_DIST * SLIDE_ARRIVE_DIST) {
+        // Arrived at vertex — expel or release
+        if (cfg.permeable) {
+          const worldPos = { x: cellCenter.x + tv.x, y: cellCenter.y + tv.y };
+          if (p.type === 'waste') { expelledWaste++; expelledWastePositions.push(worldPos); }
+          else if (p.type === 'carb') { expelledCarbs++; expelledCarbPositions.push(worldPos); }
+          else { expelledProtein++; expelledProteinPositions.push(worldPos); }
+          state.particles.splice(i, 1);
+        } else {
+          p.slidingToVertex = null;
+          bounceOffMembrane(p, poly);
+        }
+      } else {
+        // Move directly toward target vertex (no membrane projection)
+        const dist = Math.sqrt(distSq);
+        const step = Math.min(SLIDE_FORCE * dt, dist); // don't overshoot
+        const nx = dx / dist;
+        const ny = dy / dist;
+        p.x += nx * step;
+        p.y += ny * step;
+        p.vx = nx * step;
+        p.vy = ny * step;
+      }
+      continue;
+    }
+
+    // --- Free particles: normal physics ---
+    if (cfg.push) {
       const dist = Math.sqrt(p.x * p.x + p.y * p.y);
       if (dist > 1) {
         p.vx += (p.x / dist) * 0.06 * dt;
@@ -346,27 +387,23 @@ export function updateParticles(
 
     // Membrane collision
     if (!isInsidePolygon(p.x, p.y, poly)) {
-      if (p.type === 'waste' && wastePermeable) {
-        expelledWastePositions.push({
-          x: cellCenter.x + p.x,
-          y: cellCenter.y + p.y,
-        });
-        state.particles.splice(i, 1);
-        expelledWaste++;
-      } else if (p.type === 'carb' && carbPermeable) {
-        expelledCarbPositions.push({
-          x: cellCenter.x + p.x,
-          y: cellCenter.y + p.y,
-        });
-        state.particles.splice(i, 1);
-        expelledCarbs++;
-      } else if (p.type === 'protein' && proteinPermeable) {
-        expelledProteinPositions.push({
-          x: cellCenter.x + p.x,
-          y: cellCenter.y + p.y,
-        });
-        state.particles.splice(i, 1);
-        expelledProtein++;
+      if (cfg.adherent) {
+        // Find which edge the particle crossed and slide toward nearest vertex
+        const edgeIdx = findNearestEdge(p, poly);
+        const v1 = edgeIdx;
+        const v2 = (edgeIdx + 1) % n;
+        const d1 = (p.x - poly[v1].x) ** 2 + (p.y - poly[v1].y) ** 2;
+        const d2 = (p.x - poly[v2].x) ** 2 + (p.y - poly[v2].y) ** 2;
+        p.slidingToVertex = d1 <= d2 ? v1 : v2;
+        // Place particle back on the edge
+        projectOntoMembrane(p, poly);
+        p.vx = 0;
+        p.vy = 0;
+      } else if (cfg.repulsive) {
+        // Strong bounce
+        bounceOffMembrane(p, poly);
+        p.vx *= 1.5;
+        p.vy *= 1.5;
       } else {
         bounceOffMembrane(p, poly);
       }
@@ -374,4 +411,70 @@ export function updateParticles(
   }
 
   return { expelledWaste, expelledCarbs, expelledProtein, expelledCarbPositions, expelledProteinPositions, expelledWastePositions };
+}
+
+/** Find the index of the nearest edge (segment i→i+1) to a point */
+function findNearestEdge(p: { x: number; y: number }, poly: Vec2[]): number {
+  let bestIdx = 0;
+  let bestDist = Infinity;
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const edgeDx = poly[j].x - poly[i].x;
+    const edgeDy = poly[j].y - poly[i].y;
+    const lenSq = edgeDx * edgeDx + edgeDy * edgeDy;
+    if (lenSq === 0) continue;
+    const t = Math.max(0, Math.min(1,
+      ((p.x - poly[i].x) * edgeDx + (p.y - poly[i].y) * edgeDy) / lenSq
+    ));
+    const projX = poly[i].x + t * edgeDx;
+    const projY = poly[i].y + t * edgeDy;
+    const dx = p.x - projX;
+    const dy = p.y - projY;
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+/** Project a particle onto the nearest point on the inside of the membrane polygon */
+function projectOntoMembrane(p: InternalParticle, poly: Vec2[]): void {
+  let bestDist = Infinity;
+  let bestX = p.x;
+  let bestY = p.y;
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const edgeDx = poly[j].x - poly[i].x;
+    const edgeDy = poly[j].y - poly[i].y;
+    const lenSq = edgeDx * edgeDx + edgeDy * edgeDy;
+    if (lenSq === 0) continue;
+    const t = Math.max(0, Math.min(1,
+      ((p.x - poly[i].x) * edgeDx + (p.y - poly[i].y) * edgeDy) / lenSq
+    ));
+    const projX = poly[i].x + t * edgeDx;
+    const projY = poly[i].y + t * edgeDy;
+    const dx = p.x - projX;
+    const dy = p.y - projY;
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestX = projX;
+      bestY = projY;
+    }
+  }
+  // Place particle just inside the membrane (offset 2px inward)
+  const dx = bestX;
+  const dy = bestY;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d > 1) {
+    p.x = bestX - (dx / d) * 2;
+    p.y = bestY - (dy / d) * 2;
+  } else {
+    p.x = bestX;
+    p.y = bestY;
+  }
 }

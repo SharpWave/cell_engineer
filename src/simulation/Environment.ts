@@ -425,18 +425,30 @@ export function updateEnvironment(
       }
     }
 
-    // Internal particles — determine transport flags from effects
-    const wasteExo = hasTransport(effects, 'waste', 'exo') && hasAdherence(effects, 'internal', 'waste');
-    const carbExo = hasTransport(effects, 'carb', 'exo');
-    const proteinExo = hasTransport(effects, 'protein', 'exo');
-
+    // Internal particles — build per-type membrane config from effects
     const memPoints = getMembranePoints(cell);
+    const typeConfigs: Record<'carb' | 'protein' | 'waste', import('./Energy').MembraneTypeConfig> = {
+      waste: {
+        push: hasTransport(effects, 'waste', 'exo'),
+        adherent: hasAdherence(effects, 'internal', 'waste'),
+        repulsive: hasRepulsion(effects, 'internal', 'waste'),
+        permeable: hasTransport(effects, 'waste', 'exo'),
+      },
+      carb: {
+        push: hasTransport(effects, 'carb', 'exo'),
+        adherent: hasAdherence(effects, 'internal', 'carb'),
+        repulsive: hasRepulsion(effects, 'internal', 'carb'),
+        permeable: hasTransport(effects, 'carb', 'exo'),
+      },
+      protein: {
+        push: hasTransport(effects, 'protein', 'exo'),
+        adherent: hasAdherence(effects, 'internal', 'protein'),
+        repulsive: hasRepulsion(effects, 'internal', 'protein'),
+        permeable: hasTransport(effects, 'protein', 'exo'),
+      },
+    };
     const result = updateParticles(
-      cell.energy, memPoints, center,
-      wasteExo, wasteExo,       // wastePermeable, wastePush
-      carbExo, carbExo,         // carbPush, carbPermeable
-      proteinExo, proteinExo,   // proteinPush, proteinPermeable
-      delta,
+      cell.energy, memPoints, center, typeConfigs, delta,
     );
     // Expelled carbs become carb food
     for (const pos of result.expelledCarbPositions) {
