@@ -172,29 +172,29 @@ export function createCell(
     cascades = cloneCascades.map(c => {
       const fromId = idMap.get(c.fromId) ?? c.fromId;
       const toId = idMap.get(c.toId) ?? c.toId;
-      return createCascade(fromId, toId);
+      return createCascade(fromId, toId, c.mode);
     });
   } else {
-    // Starter: carb intake chain + protein intake chain + growth
-    const carbAdhere = createModule('adherence_module', 0, {
+    // Starter: carb intake (node 12) + protein intake (node 4) + growth (node 8)
+    const carbAdhere = createModule('adherence_module', 12, {
       adherenceSide: 'external', adherenceTarget: 'carb', adherenceMode: 'adherence',
     });
-    const carbSensor = createModule('membrane_sensor', 1, {
+    const carbSensor = createModule('membrane_sensor', 12, {
       membraneSide: 'external', senseTarget: 'carb', threshold: 1, mode: 'above',
     });
-    const carbTransport = createModule('membrane_transporter', 2, {
+    const carbTransport = createModule('membrane_transporter', 12, {
       resourceType: 'carb', direction: 'endo',
     });
-    const proteinAdhere = createModule('adherence_module', 8, {
+    const proteinAdhere = createModule('adherence_module', 4, {
       adherenceSide: 'external', adherenceTarget: 'protein', adherenceMode: 'adherence',
     });
-    const proteinSensor = createModule('membrane_sensor', 9, {
+    const proteinSensor = createModule('membrane_sensor', 4, {
       membraneSide: 'external', senseTarget: 'protein', threshold: 1, mode: 'above',
     });
-    const proteinTransport = createModule('membrane_transporter', 10, {
+    const proteinTransport = createModule('membrane_transporter', 4, {
       resourceType: 'protein', direction: 'endo',
     });
-    const growth = createModule('growth_mod', 3, { growthMode: 'grow' });
+    const growth = createModule('growth_mod', 8, { growthMode: 'grow' });
     const carbCascade = createCascade(carbSensor.id, carbTransport.id);
     const proteinCascade = createCascade(proteinSensor.id, proteinTransport.id);
     modules = [carbAdhere, carbSensor, carbTransport, proteinAdhere, proteinSensor, proteinTransport, growth];

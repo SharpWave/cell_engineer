@@ -2,7 +2,7 @@ import { Cell } from '../creature/Cell';
 import { spendProtein } from '../simulation/Energy';
 import {
   MODULE_CATALOG, ModuleSubtype, ModuleConfig, createModule, createCascade,
-  findNextMembraneIndex, getModuleDisplayLabel,
+  getModuleDisplayLabel,
 } from '../creature/Module';
 import { updateFingerprint } from '../creature/Cell';
 import { SelectionState } from './Selection';
@@ -24,8 +24,7 @@ const PURCHASABLE: ModuleSubtype[] = [
   'membrane_length_sensor',
 ];
 
-/** Modules that require membrane click placement */
-const PLACEMENT_MODULES: ModuleSubtype[] = ['eye', 'foot'];
+/** All modules now require membrane click placement */
 
 /** Tracks the pending module being configured before confirmation */
 let pendingBuild: { subtype: ModuleSubtype; config: ModuleConfig } | null = null;
@@ -169,41 +168,28 @@ export function buildEngineeringPanel(
     btnRow.style.gap = '4px';
     btnRow.style.marginTop = '4px';
 
-    const needsPlacement = PLACEMENT_MODULES.includes(subtype);
-
     const okBtn = document.createElement('button');
     okBtn.className = 'eng-btn';
     okBtn.style.flex = '1';
     okBtn.style.textAlign = 'center';
     okBtn.style.color = '#4aff8a';
-    okBtn.textContent = needsPlacement ? 'Place on membrane' : 'Build';
+    okBtn.textContent = 'Place on membrane';
     okBtn.disabled = cell.energy.protein < info.cost;
     okBtn.addEventListener('click', () => {
-      if (needsPlacement && selection) {
-        // Enter placement mode — wait for membrane click
-        awaitingPlacement = true;
-        selection.pendingPlacement = (membraneIndex: number) => {
-          if (spendProtein(cell.energy, info.cost)) {
-            const mod = createModule(subtype, membraneIndex, config);
-            cell.modules.push(mod);
-            updateFingerprint(cell);
-          }
-          awaitingPlacement = false;
-          pendingBuild = null;
-          buildEngineeringPanel(container, cell, selection);
-        };
-        buildEngineeringPanel(container, cell, selection);
-      } else {
-        // Non-placement build
+      if (!selection) return;
+      // Enter placement mode — wait for membrane click
+      awaitingPlacement = true;
+      selection.pendingPlacement = (membraneIndex: number) => {
         if (spendProtein(cell.energy, info.cost)) {
-          const idx = findNextMembraneIndex(cell.modules);
-          const mod = createModule(subtype, idx, config);
+          const mod = createModule(subtype, membraneIndex, config);
           cell.modules.push(mod);
           updateFingerprint(cell);
         }
+        awaitingPlacement = false;
         pendingBuild = null;
         buildEngineeringPanel(container, cell, selection);
-      }
+      };
+      buildEngineeringPanel(container, cell, selection);
     });
 
     const cancelBtn = document.createElement('button');
