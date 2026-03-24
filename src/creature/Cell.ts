@@ -258,7 +258,7 @@ export function fingerprintSimilarity(self: Cell, other: Cell): number {
   return overlap / self.fingerprint.length;
 }
 
-/** Protein cost to replicate a cell's full module set */
+/** Total protein cost to replicate a cell's full module set */
 export function mitosisProteinCost(cell: Cell): number {
   return cell.modules.reduce((sum, m) => sum + MODULE_CATALOG[m.subtype].cost, 0);
 }
@@ -273,7 +273,7 @@ export function startMitosis(cell: Cell, now: number): void {
     duration: MITOSIS_DURATION,
     axis: Math.random() * Math.PI,
     modulesBuilt: 0,
-    modulesRequired: mitosisProteinCost(cell), // total protein needed (1 per protein cost unit)
+    modulesRequired: cell.modules.length, // one tick per module
     buildAccumulator: 0,
   };
 }

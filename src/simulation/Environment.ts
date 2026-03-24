@@ -12,7 +12,7 @@ import {
 import { LightCycle, getLightLevel } from './LightCycle';
 import {
   updateModules, ModuleEffects, ModuleContext, SurfaceTarget,
-  hasTransport, hasAdherence, hasRepulsion,
+  hasTransport, hasAdherence, hasRepulsion, MODULE_CATALOG,
 } from '../creature/Module';
 
 const ABSORB_DELAY = 1000;
@@ -449,16 +449,17 @@ export function updateEnvironment(
     }
 
     if (cell.mitosisState) {
-      // Gradually build module copies at the same pace as growth
+      // Gradually build module copies — one whole module per tick
       const ms = cell.mitosisState;
       if (ms.modulesBuilt < ms.modulesRequired && effects.mitosisTriggered) {
         ms.buildAccumulator += delta * GROWTH_PROTEIN_RATE;
         while (ms.buildAccumulator >= 1 && ms.modulesBuilt < ms.modulesRequired) {
           ms.buildAccumulator -= 1;
-          if (spendProtein(cell.energy, 1)) {
+          const modCost = MODULE_CATALOG[cell.modules[ms.modulesBuilt].subtype].cost;
+          if (spendProtein(cell.energy, modCost)) {
             ms.modulesBuilt++;
           } else {
-            break; // no protein available, try again next tick
+            break; // not enough protein, try again next tick
           }
         }
         // Once all modules built, reset startTime so the division animation plays from now
@@ -650,8 +651,29 @@ export function updateEnvironment(
           // Merge: conserve mass (resourceValue) and area (πr² → r = √(rA² + rB²))
           const totalValue = wa.resourceValue + wb.resourceValue;
           const mergedRadius = Math.sqrt(rA * rA + rB * rB);
-          const mx = (wa.body.position.x + wb.body.position.x) / 2;
-          const my = (wa.body.position.y + wb.body.position.y) / 2;
+          let mx = (wa.body.position.x + wb.body.position.x) / 2;
+          let my = (wa.body.position.y + wb.body.position.y) / 2;
+
+          // Prevent merged particle from landing inside a cell's membrane
+          for (const c of cells) {
+            const cc = getCellCenter(c);
+            const r = c.properties.baseRadius * c.properties.growthScale * 1.2;
+            const ddx = mx - cc.x;
+            const ddy = my - cc.y;
+            if (ddx * ddx + ddy * ddy < r * r) {
+              // Use position of whichever particle is farther from the cell center
+              const dA = (wa.body.position.x - cc.x) ** 2 + (wa.body.position.y - cc.y) ** 2;
+              const dB = (wb.body.position.x - cc.x) ** 2 + (wb.body.position.y - cc.y) ** 2;
+              if (dA >= dB) {
+                mx = wa.body.position.x;
+                my = wa.body.position.y;
+              } else {
+                mx = wb.body.position.x;
+                my = wb.body.position.y;
+              }
+              break;
+            }
+          }
 
           removeFood(world, wa);
           removeFood(world, wb);
