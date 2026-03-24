@@ -272,6 +272,39 @@ export function createCascade(fromId: string, toId: string, mode: 'excitatory' |
   return { id: `cas_${nextId++}`, fromId, toId, mode };
 }
 
+// --- Mutation ---
+
+interface MutableParam {
+  key: keyof ModuleConfig;
+  min: number;
+  max: number;
+}
+
+const MUTABLE_PARAMS: Partial<Record<ModuleSubtype, MutableParam[]>> = {
+  internal_sensor:        [{ key: 'threshold', min: 0, max: 200 }],
+  membrane_sensor:        [{ key: 'threshold', min: 0, max: 200 }],
+  light_sensor:           [{ key: 'threshold', min: 0, max: 100 }],
+  membrane_length_sensor: [{ key: 'threshold', min: 0.1, max: 10 }],
+  eye: [
+    { key: 'fovDegrees', min: 1, max: 360 },
+    { key: 'eyeScale', min: 0, max: 1 },
+  ],
+};
+
+/** Randomly alter every numerical module parameter by ±30% of its current value. */
+export function mutateModules(modules: CellModule[]): void {
+  for (const mod of modules) {
+    const params = MUTABLE_PARAMS[mod.subtype];
+    if (!params) continue;
+    for (const { key, min, max } of params) {
+      const current = mod.config[key] as number | undefined;
+      if (current === undefined) continue;
+      const delta = current * (Math.random() * 0.6 - 0.3);
+      (mod.config as any)[key] = Math.max(min, Math.min(max, current + delta));
+    }
+  }
+}
+
 // --- Update logic ---
 
 export function updateModules(

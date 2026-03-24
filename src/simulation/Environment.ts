@@ -690,6 +690,16 @@ export function updateEnvironment(
       }
     }
   }
+  // Remove waste particles that have grown too large
+  const WASTE_MAX_VALUE = 5000;
+  for (let i = env.food.length - 1; i >= 0; i--) {
+    const f = env.food[i];
+    if (f.resourceType === 'waste' && f.resourceValue >= WASTE_MAX_VALUE) {
+      removeFood(world, f);
+      env.food.splice(i, 1);
+    }
+  }
+
   // Clean up stale timer entries
   for (const key of wasteTouchTimers.keys()) {
     if (!activePairs.has(key)) wasteTouchTimers.delete(key);

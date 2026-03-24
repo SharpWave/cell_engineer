@@ -183,17 +183,23 @@ function drawFoodCell(
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Resource particles inside (wobbling dots)
+  // Resource particles inside (orbiting dots)
   const dotGlow = food.resourceType === 'protein' ? PROTEIN_GLOW
     : food.resourceType === 'waste' ? WASTE_GLOW : CARB_GLOW;
   const dotColor = food.resourceType === 'protein' ? PROTEIN_COLOR
     : food.resourceType === 'waste' ? WASTE_COLOR : CARB_COLOR;
   const particleCount = food.resourceValue;
+  const idSeed = food.body.id;
   for (let i = 0; i < particleCount; i++) {
-    const phase = now * 0.002 + i * 2.09 + food.body.id;
-    const innerR = radius * 0.45;
-    const px = Math.cos(phase) * innerR;
-    const py = Math.sin(phase * 0.7 + i) * innerR;
+    // Fixed angular slot + gentle drift
+    const baseAngle = (i / particleCount) * Math.PI * 2;
+    const drift = now * 0.0015 + idSeed;
+    const angle = baseAngle + drift;
+    // Stagger radial distance so particles don't all sit on one ring
+    const rFrac = 0.25 + 0.45 * ((i * 0.618) % 1); // golden-ratio spread
+    const innerR = radius * rFrac;
+    const px = Math.cos(angle) * innerR;
+    const py = Math.sin(angle) * innerR;
 
     // Glow
     ctx.beginPath();

@@ -1,6 +1,6 @@
 import Matter from 'matter-js';
 import { CellProperties, defaultCellProperties } from './CellProperties';
-import { CellModule, SignalCascade, MODULE_CATALOG, createModule, createCascade, getModuleFingerprintKey } from './Module';
+import { CellModule, SignalCascade, MODULE_CATALOG, createModule, createCascade, getModuleFingerprintKey, mutateModules } from './Module';
 import { EnergyState, InternalParticle, createEnergyState, addCarbs, addProtein, spendProtein, reconcileEnergy } from '../simulation/Energy';
 
 const MEMBRANE_POINTS = 16;
@@ -385,6 +385,11 @@ export function completeMitosis(cell: Cell, world: Matter.World): Cell {
     cell.cascades,
     daughterEnergy,
   );
+
+  // Mutate daughter's module parameters if mutation mode is on
+  if ((document.getElementById('chk-mutation') as HTMLInputElement | null)?.checked) {
+    mutateModules(daughter.modules);
+  }
 
   cell.mitosisState = null;
 
