@@ -368,7 +368,13 @@ export function updateParticles(
       if (distSq < SLIDE_ARRIVE_DIST * SLIDE_ARRIVE_DIST) {
         // Arrived at vertex — expel or release
         if (cfg.permeable) {
-          const worldPos = { x: cellCenter.x + tv.x, y: cellCenter.y + tv.y };
+          // Push spawn position outward from cell center so the food particle
+          // starts clearly outside the membrane (not hidden under the cell render)
+          const vLen = Math.sqrt(tv.x * tv.x + tv.y * tv.y);
+          const EXPEL_OFFSET = 14;
+          const outX = vLen > 0 ? (tv.x / vLen) * EXPEL_OFFSET : 0;
+          const outY = vLen > 0 ? (tv.y / vLen) * EXPEL_OFFSET : 0;
+          const worldPos = { x: cellCenter.x + tv.x + outX, y: cellCenter.y + tv.y + outY };
           if (p.type === 'waste') { expelledWaste++; expelledWastePositions.push(worldPos); }
           else if (p.type === 'carb') { expelledCarbs++; expelledCarbPositions.push(worldPos); }
           else { expelledProtein++; expelledProteinPositions.push(worldPos); }
